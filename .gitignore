@@ -1,0 +1,13 @@
+__pycache__
+experiment
+analysis
+results
+*.sh
+*.log
+.vscode
+*.out
+old_results
+old_experiment
+*.pdf
+images
+data

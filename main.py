@@ -1,3 +1,5 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import torch
 from sklearn.metrics import roc_auc_score
 import torch.optim as optim

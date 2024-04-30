@@ -69,10 +69,12 @@ class Transform:
 class Model(torch.nn.Module):
     def __init__(self, backbone):
         super().__init__()
-        if backbone == 152:
+        if (backbone == "resnet152") or (backbone == 152):
             self.backbone = models.resnet152(pretrained=True)
-        else:
+        elif backbone == "resnet18":
             self.backbone = models.resnet18(pretrained=True)
+        elif backbone == "wide_resnet50_2":
+            self.backbone = models.wide_resnet50_2(pretrained=True)
         self.backbone.fc = torch.nn.Identity()
         freeze_parameters(self.backbone, backbone, train_fc=False)
 
@@ -125,8 +127,9 @@ def get_loaders(dataset, label_class, batch_size, backbone):
                                                    drop_last=False)
         test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=2,
                                                   drop_last=False)
-        return train_loader, test_loader, torch.utils.data.DataLoader(trainset_1, batch_size=batch_size,
-                                                                      shuffle=True, num_workers=2, drop_last=False)
+        train_loader_1 = torch.utils.data.DataLoader(trainset_1, batch_size=batch_size, shuffle=True, num_workers=2,
+                                                     drop_last=False)
+        return train_loader, test_loader, train_loader_1
     else:
         print('Unsupported Dataset')
         exit()
