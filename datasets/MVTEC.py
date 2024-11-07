@@ -159,9 +159,9 @@ class MVTEC_Data():
     def __init__(self, args):
             
         if args.domain_cnt == 1:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/semi-supervised/1domain/20240412-MVTEC-{args.checkitew}.npz'
+            train_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/1domain/20240412-MVTEC-{args.checkitew}.npz'
         elif args.domain_cnt == 4:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/semi-supervised/4domain/20240412-MVTEC-{args.checkitew}.npz'
+            train_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/4domain/20240412-MVTEC-{args.checkitew}.npz'
         
         data = np.load(train_path, allow_pickle=True)
 
