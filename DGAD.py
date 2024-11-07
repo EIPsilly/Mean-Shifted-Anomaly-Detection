@@ -217,6 +217,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--dataset', default='PACS')
+    parser.add_argument("--checkitew", type=str, default="bottle")
     parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
     parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
@@ -231,7 +232,9 @@ if __name__ == "__main__":
     parser.add_argument("--test_epoch", type=int, default=5)
     parser.add_argument("--domain_cnt", type=int, default=3)
     parser.add_argument("--cnt", type=int, default=0)
-    args = parser.parse_args()
+    
+    # args = parser.parse_args()
+    args = parser.parse_args(["--dataset", "MVTEC", "--domain_cnt", "4"])
 
     args.experiment_dir = f"experiment{args.results_save_path}"
 
@@ -241,5 +244,8 @@ if __name__ == "__main__":
     if not os.path.exists(f"results{args.results_save_path}"):
         os.makedirs(f"results{args.results_save_path}")
 
-    filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
+    if args.dataset == "PACS":
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
+    if args.dataset == "MVTEC":
+        filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
     main(args)
