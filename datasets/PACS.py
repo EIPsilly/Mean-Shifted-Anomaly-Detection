@@ -15,6 +15,7 @@ with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', enco
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 class_to_idx = config["PACS_class_to_idx"]
+domain_to_idx = config["PACS_domain_to_idx"]
 
 def int_parameter(level, maxval):
     """Helper function to scale `val` between 0 and maxval .
@@ -114,8 +115,8 @@ def augpacs(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
     mixed = (1 - m) * preprocess_img + m * mix
     return mixed
 
-class PACS_Dataset(Dataset):
-    def __init__(self, x, y, transform=None, target_transform=None, augment_transform = None):
+class PACS_Dataset_with_domain_label(Dataset):
+    def __init__(self, args, x, y, transform=None, target_transform=None, augment_transform = None):
         self.image_paths = x
         self.labels = y
         self.transform = transform
@@ -123,17 +124,34 @@ class PACS_Dataset(Dataset):
         self.augment_transform = augment_transform
         
         self.img_list = []
+
+        if "input_img_size" in args:
+            image_size = args.input_img_size
+        else:
+            image_size = 256
         resize_transform = transforms.Compose([
-            transforms.Resize((256, 256)),
+            transforms.Resize((image_size, image_size)),
             ])
-        for img_path in self.image_paths:
+        self.domain_labels = np.empty_like(self.labels)
+
+        for idx, img_path in enumerate(self.image_paths):
+            self.domain_labels[idx] = domain_to_idx[img_path.split("/")[2]]
             img = Image.open(config["PACS_root"] + img_path).convert('RGB')
             img = resize_transform(img)
             self.img_list.append(img)
         
+        self.semi_domain_labels = self.domain_labels.copy()
+        if "domain_label_ratio" in args:
+            from sklearn.model_selection import train_test_split
+            mask_set, unmask_set, mask_idx, unmask_idx = train_test_split(self.semi_domain_labels, np.arange(self.semi_domain_labels.shape[0]), test_size=max(3 / self.semi_domain_labels.shape[0], args.domain_label_ratio), random_state=42, stratify=self.semi_domain_labels)
+            self.semi_domain_labels[mask_idx] = -1
+        
         self.normal_idx = np.where(self.labels==0)[0]
         self.outlier_idx = np.where(self.labels==1)[0]
 
+        self.domain_idx = []
+        for i in range(args.domain_cnt):
+            self.domain_idx.append(np.where(self.domain_labels == i)[0])
     def __len__(self):
         return len(self.image_paths)
 
@@ -153,7 +171,7 @@ class PACS_Dataset(Dataset):
         if self.target_transform is not None:
             label = self.target_transform(label)
 
-        return idx, img, augimg, label
+        return idx, img, augimg, label, self.domain_labels[idx]
     
 class PACS_Data():
 
@@ -161,22 +179,24 @@ class PACS_Data():
             
         normal_class = "".join(list(map(str,args.normal_class)))
         anomaly_class = "".join(list(map(str,args.anomaly_class)))
-        if args.domain_cnt == 1:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/1domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
-        elif args.domain_cnt == 3:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
+        if not "supervised" in args:
+            args.supervised = "un"
+        
+        train_path = f'../domain-generalization-for-anomaly-detection/data/pacs/{args.supervised}supervised/{args.domain_cnt}domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
         
         if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
             pass
         else:
-            if args.domain_cnt == 3:
-                train_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/3domain/20240412-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
+            train_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/{args.domain_cnt}domain/20240412-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
 
         data = np.load(train_path, allow_pickle=True)
 
         mean = (0.485, 0.456, 0.406)
         std = (0.229, 0.224, 0.225)
-        image_size = 256
+        if "input_img_size" in args:
+            image_size = args.input_img_size
+        else:
+            image_size = 256
 
         train_transform = transforms.Compose([
                 transforms.ToTensor(),
@@ -193,10 +213,10 @@ class PACS_Data():
                         std=torch.tensor(std))
         ])
         
-        self.train_data = PACS_Dataset(data["train_set_path"], data["train_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
+        self.train_data = PACS_Dataset_with_domain_label(args, data["train_set_path"], data["train_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
         unlabeled_idx = np.where(data["train_labels"] == 0)[0]
-        self.unlabeled_data = PACS_Dataset(data["train_set_path"][unlabeled_idx], data["train_labels"][unlabeled_idx], transform=train_transform, target_transform=None, augment_transform = augment_transform)
-        self.val_data = PACS_Dataset(data["val_set_path"], data["val_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
+        self.unlabeled_data = PACS_Dataset_with_domain_label(args, data["train_set_path"][unlabeled_idx], data["train_labels"][unlabeled_idx], transform=train_transform, target_transform=None, augment_transform = augment_transform)
+        self.val_data = PACS_Dataset_with_domain_label(args, data["val_set_path"], data["val_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
 
         logging.info("y_train\t" + str(dict(sorted(Counter(data["train_labels"]).items()))))
         logging.info("y_val\t" + str(dict(sorted(Counter(data["val_labels"]).items()))))
@@ -204,7 +224,7 @@ class PACS_Data():
         print("y_val\t" + str(dict(sorted(Counter(data["val_labels"]).items()))))
         self.test_dict = {}
         for domain in ["photo", "art_painting", "cartoon", "sketch"]:
-            self.test_dict[domain] = PACS_Dataset(data[f"test_{domain}"], data[f"test_{domain}_labels"], transform=test_transform, target_transform=None, augment_transform = augment_transform)
+            self.test_dict[domain] = PACS_Dataset_with_domain_label(args, data[f"test_{domain}"], data[f"test_{domain}_labels"], transform=test_transform, target_transform=None, augment_transform = augment_transform)
             logging.info(domain + "\ty_test\t" + str(dict(sorted(Counter(data[f"test_{domain}_labels"]).items()))))
             print(domain + "\ty_test\t" + str(dict(sorted(Counter(data[f"test_{domain}_labels"]).items()))))
             
@@ -219,7 +239,7 @@ class PACS_Data():
         #         test_img_path_list += img_paths
         #         test_label += [int(class_to_idx[_class_] in args.anomaly_class)] * len(img_paths)
         #     logging.info(domain + "\ty_test\t" + str(dict(sorted(Counter(test_label).items()))))
-        #     self.test_dict[domain] = PACS_Dataset(test_img_path_list, test_label, transform=test_transform, target_transform=None, augment_transform = augment_transform)
+        #     self.test_dict[domain] = PACS_Dataset_with_domain_label(test_img_path_list, test_label, transform=test_transform, target_transform=None, augment_transform = augment_transform)
 
 
     def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 8, drop_last_train = True):
@@ -237,7 +257,6 @@ class PACS_Data():
         self.unlabeled_loader = DataLoader(dataset=self.unlabeled_data, batch_size=batch_size, shuffle=shuffle_train, num_workers=num_workers, drop_last=False)
 
         return self.train_loader, self.val_loader, self.test_loader_dict
-    
     
 
 if __name__ == "__main__":
