@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 import numpy as np
@@ -82,6 +83,28 @@ class Model(torch.nn.Module):
         z1 = self.backbone(x)
         z_n = F.normalize(z1, dim=-1)
         return z_n
+
+class MLP(nn.Module):
+    def __init__(self, args, dims):
+        super(MLP, self).__init__()
+        self.args = args
+        
+        layers = [nn.Linear(dims[i - 1], dims[i], bias=False) for i in range(1, len(dims))]
+        self.hidden = nn.ModuleList(layers)
+
+    def forward(self, x):
+        for layer in self.hidden:
+            x = F.leaky_relu(layer(x))
+        return x
+    
+class ScoreNet(torch.nn.Module):
+    def __init__(self, args) -> None:
+        super().__init__()
+        self.score_net = MLP(args, [2048, 512, 64, 1])
+
+    def forward(self, x):
+        return self.score_net(x)
+
 
 def freeze_parameters(model, backbone, train_fc=False):
     if not train_fc:
