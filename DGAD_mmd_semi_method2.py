@@ -1,5 +1,5 @@
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import torch
 from sklearn.metrics import roc_auc_score, auc, precision_recall_curve, average_precision_score
 import torch.optim as optim
@@ -93,9 +93,9 @@ def test_after_fine_tune(model, score_net, center, test_loader):
 
 def fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, val_loader, test_loader, device, args):
     optimizer = optim.Adam([
-        {'params': model.parameters()}, 
-        {'params': score_net.parameters()},
-	], lr=args.ft_lr, weight_decay=1e-5)
+        {'params': model.parameters(), "lr": args.ft_lr}, 
+        {'params': score_net.parameters(), "lr": args.score_lr},
+	], weight_decay=1e-5)
     
     val_max_metric = {"AUROC": -1,
                       "AUPRC": -1}
@@ -134,17 +134,18 @@ def fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, va
 
             optimizer.zero_grad()
 
+            normal_idx = torch.where(label == 0)[0]
             out_1 = model(img1)
             out_2 = model(augimg)
             if args.no_center == 0:
                 out_1 = out_1 - center
                 out_2 = out_2 - center
 
-            L_CL = contrastive_loss(out_1, out_2)
-            L_mmd = args.lambda0 * mmd(domain_labels, out_1)
+            L_CL = contrastive_loss(out_1[normal_idx], out_2[normal_idx])
+            L_mmd = args.lambda0 * mmd(domain_labels[normal_idx], out_1[normal_idx])
 
             scores = score_net(out_1)
-            L_normal_score = (scores[torch.where(label == 0)[0]] - border).clamp_(min=0.).sum()
+            L_normal_score = (scores[normal_idx] - border).clamp_(min=0.).sum()
             L_anomaly_score = (border + args.confidence_margin - scores[torch.where(label == 1)[0]]).clamp_(min=0.).sum()
 
             if args.lambda1 == 1:
@@ -323,6 +324,7 @@ if __name__ == "__main__":
     parser.add_argument('--label', default=0, type=int, help='The normal class')
     parser.add_argument('--lr', type=float, default=1e-5, help='The initial learning rate.')
     parser.add_argument('--ft_lr', type=float, default=1e-5, help='The fine tune learning rate.')
+    parser.add_argument('--score_lr', type=float, default=1e-3, help='The fine tune learning rate.')
     parser.add_argument('--confidence_margin', type=float, default=3, help='confidence_margin.')
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--backbone', default='wide_resnet50_2', type=str, help='ResNet 18/152')
@@ -351,7 +353,7 @@ if __name__ == "__main__":
         os.makedirs(f"results{args.results_save_path}")
 
     if args.dataset == "PACS":
-        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},no_center={args.no_center},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},no_center={args.no_center},cnt={args.cnt}'
     if args.dataset == "MVTEC":
         filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
     main(args)
