@@ -1,5 +1,4 @@
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import torch
 from sklearn.metrics import roc_auc_score, auc, precision_recall_curve, average_precision_score
 import torch.optim as optim
@@ -17,17 +16,17 @@ def contrastive_loss(out_1, out_2):
     out_1 = F.normalize(out_1, dim=-1)
     out_2 = F.normalize(out_2, dim=-1)
     bs = out_1.size(0)
-    temp = 0.25
+    temperature = args.temperature
     # [2*B, D]
     out = torch.cat([out_1, out_2], dim=0)
     # [2*B, 2*B]
-    sim_matrix = torch.exp(torch.mm(out, out.t().contiguous()) / temp)
+    sim_matrix = torch.exp(torch.mm(out, out.t().contiguous()) / temperature)
     mask = (torch.ones_like(sim_matrix) - torch.eye(2 * bs, device=sim_matrix.device)).bool()
     # [2B, 2B-1]
     sim_matrix = sim_matrix.masked_select(mask).view(2 * bs, -1)
 
     # compute loss
-    pos_sim = torch.exp(torch.sum(out_1 * out_2, dim=-1) / temp)
+    pos_sim = torch.exp(torch.sum(out_1 * out_2, dim=-1) / temperature)
     # [2*B]
     pos_sim = torch.cat([pos_sim, pos_sim], dim=0)
     loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
@@ -92,10 +91,13 @@ def test_after_fine_tune(model, score_net, center, test_loader):
 
 
 def fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, val_loader, test_loader, device, args):
-    optimizer = optim.Adam([
-        {'params': model.parameters(), "lr": args.ft_lr}, 
-        {'params': score_net.parameters(), "lr": args.score_lr},
-	], weight_decay=1e-5)
+    if args.freeze == 0:
+        optimizer = optim.Adam([
+            {'params': model.parameters(), "lr": args.ft_lr}, 
+            {'params': score_net.parameters(), "lr": args.score_lr},
+        ], weight_decay=1e-5)
+    else:
+        optimizer = optim.Adam(score_net.parameters(), lr = args.score_lr, weight_decay=1e-5)
     
     val_max_metric = {"AUROC": -1,
                       "AUPRC": -1}
@@ -122,8 +124,10 @@ def fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, va
     
     sub_train_results_loss = []
     for epoch in range(args.ft_epochs):
-        
-        model.train()
+        if args.freeze == 0:
+            model.train()
+        else:
+            model.eval()
         score_net.train()
         total_loss, total_num = 0.0, 0
         train_loss_list = []
@@ -135,14 +139,26 @@ def fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, va
             optimizer.zero_grad()
 
             normal_idx = torch.where(label == 0)[0]
-            out_1 = model(img1)
-            out_2 = model(augimg)
-            if args.no_center == 0:
-                out_1 = out_1 - center
-                out_2 = out_2 - center
+            
+            if args.freeze == 0:
+                out_1 = model(img1)
+                out_2 = model(augimg)
+                if args.no_center == 0:
+                    out_1 = out_1 - center
+                    out_2 = out_2 - center
 
-            L_CL = contrastive_loss(out_1[normal_idx], out_2[normal_idx])
-            L_mmd = args.lambda0 * mmd(domain_labels[normal_idx], out_1[normal_idx])
+                L_CL = contrastive_loss(out_1[normal_idx], out_2[normal_idx])
+                L_mmd = args.lambda0 * mmd(domain_labels[normal_idx], out_1[normal_idx], use_cosine=True)
+            else:
+                with torch.no_grad():
+                    out_1 = model(img1)
+                    out_2 = model(augimg)
+                    if args.no_center == 0:
+                        out_1 = out_1 - center
+                        out_2 = out_2 - center
+
+                    L_CL = contrastive_loss(out_1[normal_idx], out_2[normal_idx])
+                    L_mmd = args.lambda0 * mmd(domain_labels[normal_idx], out_1[normal_idx], use_cosine=True)
 
             scores = score_net(out_1)
             L_normal_score = (scores[normal_idx] - border).clamp_(min=0.).sum()
@@ -252,7 +268,7 @@ def run_epoch(model, train_loader, optimizer, center, device, is_angular):
             out_2 = out_2 - center
 
         L_CL = contrastive_loss(out_1, out_2)
-        L_mmd = args.lambda0 * mmd(domain_labels, out_1)
+        L_mmd = args.lambda0 * mmd(domain_labels, out_1,  use_cosine=True)
 
         loss = L_CL + L_mmd
         
@@ -338,13 +354,17 @@ if __name__ == "__main__":
     parser.add_argument("--lambda0", type=int, default=1)
     parser.add_argument("--lambda1", type=int, default=1)
     parser.add_argument("--no_center", type=int, default=0)
+    parser.add_argument("--freeze", type=int, default=0)
     parser.add_argument("--quantile", type=float, default=1.0)
+    parser.add_argument("--temperature", type=float, default=0.25)
     parser.add_argument("--supervised", type=str, default="semi-")
     parser.add_argument("--random_seed", type=int, default=42)
+    parser.add_argument("--gpu", type=str, default="3")
     
     args = parser.parse_args()
     torch.manual_seed(args.random_seed)
     args.experiment_dir = f"experiment{args.results_save_path}"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     if not os.path.exists(args.experiment_dir):
         os.makedirs(args.experiment_dir)
@@ -353,7 +373,7 @@ if __name__ == "__main__":
         os.makedirs(f"results{args.results_save_path}")
 
     if args.dataset == "PACS":
-        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},no_center={args.no_center},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},freeze={args.freeze},no_center={args.no_center},cnt={args.cnt}'
     if args.dataset == "MVTEC":
         filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
     main(args)
