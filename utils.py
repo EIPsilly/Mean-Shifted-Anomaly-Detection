@@ -68,8 +68,9 @@ class Transform:
 
 
 class Model(torch.nn.Module):
-    def __init__(self, backbone):
+    def __init__(self, args):
         super().__init__()
+        backbone = args.backbone
         if (backbone == "resnet152") or (backbone == 152):
             self.backbone = models.resnet152(pretrained=True)
         elif backbone == "resnet18":
@@ -78,6 +79,10 @@ class Model(torch.nn.Module):
             self.backbone = models.wide_resnet50_2(pretrained=True)
         self.backbone.fc = torch.nn.Identity()
         freeze_parameters(self.backbone, backbone, train_fc=False)
+        if ("freeze_m" in args) and (args.freeze_m == 1):
+            for k, v in self.backbone.named_parameters():
+                if not ('layer4' in k):
+                    v.requires_grad = False
 
     def forward(self, x):
         z1 = self.backbone(x)

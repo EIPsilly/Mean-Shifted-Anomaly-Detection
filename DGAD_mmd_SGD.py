@@ -208,7 +208,7 @@ def main(args):
     print('Dataset: {}, Normal Label: {}, LR: {}'.format(args.dataset, args.label, args.lr))
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
-    model = utils.Model(args.backbone)
+    model = utils.Model(args)
     global mmd
     mmd = MMDLoss(pooled=True)
     mmd = mmd.to(device)
