@@ -65,7 +65,7 @@ def calc_score(model, score_net, center, dataloader):
 
             target_list.append(target.cpu().numpy())
             domain_label_list.append(domain_label.cpu().numpy())
-            file_name_list.append(dataloader.dataset.image_paths[idx])
+            file_name_list.append(dataloader.dataset.image_paths[idx].reshape(-1))
 
         total_pred = np.append(total_pred, output.cpu().numpy())
         total_target = np.append(total_target, target.cpu().numpy())
@@ -100,6 +100,7 @@ def fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, va
         ], weight_decay=1e-5)
     else:
         optimizer = optim.Adam(score_net.parameters(), lr = args.score_lr, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.ft_epochs, eta_min = min(args.ft_lr, args.score_lr) * 1e-6)
     
     val_max_metric = {"AUROC": -1,
                       "AUPRC": -1}
@@ -187,7 +188,8 @@ def fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, va
                 sub_train_loss_list.append([L_CL.item(), L_mmd.item(), L_normal_score.item(), L_anomaly_score.item()])
             else:
                 sub_train_loss_list.append([L_CL.item(), L_mmd.item(), L_classfier.item()])
-            
+
+        scheduler.step()
         running_loss = total_loss / (total_num)
         train_results_loss.append(running_loss)
         print('Epoch: {}, Loss: {}'.format(epoch + 1, running_loss))
@@ -300,7 +302,7 @@ def calc_ot(x, y, p = 2, metric = 'cosine'):
         loss='sinkhorn', p=p,
         cost=lambda a, b: cost_func(a, b, p=p, metric=metric),
         blur=entreg**(1/p), backend='tensorized')
-    cost_func(x, y)
+    # cost_func(x, y)
     # OTLoss = geomloss.SamplesLoss(
     #     loss='sinkhorn', p=p,
     #     cost=geomloss.utils.squared_distances,
@@ -403,7 +405,7 @@ def build_dataloader(args, **kwargs):
         data = MVTEC_Data(args)
 
     train_set = data.train_data
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, **kwargs)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers = args.workers, drop_last=True)
     val_data = data.val_data
     val_loader = DataLoader(val_data, batch_size=args.batch_size, shuffle=False, **kwargs)
     test_loader = {}
@@ -411,7 +413,7 @@ def build_dataloader(args, **kwargs):
         test_loader[key] = DataLoader(data.test_dict[key], batch_size=args.batch_size, shuffle=False, **kwargs)
     
     unlabeled_data = data.unlabeled_data
-    unlabeled_loader = DataLoader(unlabeled_data, batch_size=args.batch_size, **kwargs)
+    unlabeled_loader = DataLoader(unlabeled_data, batch_size=args.batch_size, num_workers = args.workers, drop_last=True)
     
     return train_loader, val_loader, test_loader, unlabeled_loader
 
@@ -440,8 +442,8 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', default='PACS')
     parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
-    parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6])
+    parser.add_argument("--normal_class", nargs="+", type=int, default=[5])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[0,1,2,3,4,6])
     parser.add_argument('--epochs', default=1, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--ft_epochs', default=1, type=int, help='number of fine tune epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
