@@ -67,6 +67,50 @@ class Transform:
         return x_1, x_2
 
 
+class Multi_Scale_Model(torch.nn.Module):
+    def __init__(self, args, **kwargs):
+        super().__init__()
+        backbone = args.backbone
+        if (backbone == "resnet152") or (backbone == 152):
+            self.backbone = models.resnet152(pretrained=True)
+        elif backbone == "resnet18":
+            self.backbone = models.resnet18(pretrained=True)
+        elif backbone == "wide_resnet50_2":
+            self.backbone = models.wide_resnet50_2(pretrained=True)
+        self.backbone.fc = torch.nn.Identity()
+        freeze_parameters(self.backbone, backbone, train_fc=False)
+        if ("freeze_m" in args) and (args.freeze_m == 1):
+            for k, v in self.backbone.named_parameters():
+                if not ('layer4' in k):
+                    v.requires_grad = False
+        
+        from utils_DGAD_method15 import _BN_layer, AttnBottleneck
+        kwargs['width_per_group'] = 64 * 2
+        self.specfic_conv = _BN_layer("wide_resnet50_2", AttnBottleneck, [3, 4, 6, 3], True, True, **kwargs)
+
+    def forward(self, x):
+        x = self.backbone.conv1(x)
+        x = self.backbone.bn1(x)
+        x = self.backbone.relu(x)
+        x = self.backbone.maxpool(x)
+
+        specific_feature = self.backbone.layer1(x)
+        x = self.backbone.layer2(specific_feature)
+        x = self.backbone.layer3(x)
+        x = self.backbone.layer4(x)
+
+        x = self.backbone.avgpool(x)
+        x = torch.flatten(x, 1)
+        z1 = self.backbone.fc(x)
+
+        # z1 = self.backbone(x)
+        invariant_feature = F.normalize(z1, dim=-1)
+        
+        specific_feature = self.specfic_conv(specific_feature)
+        specific_feature = F.normalize(torch.flatten(specific_feature, 1), dim=-1)
+        
+        return specific_feature, invariant_feature
+
 class Model(torch.nn.Module):
     def __init__(self, args):
         super().__init__()
