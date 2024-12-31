@@ -452,12 +452,6 @@ class BN_layer(nn.Module):
         return nn.Sequential(*layers)
 
     def _forward_impl(self, x: Tensor) -> Tensor:
-        # See note [TorchScript super()]
-        # x = self.cbam(x)
-        # texture_feature = self.relu(self.bn2(self.conv2(self.relu(self.bn1(self.conv1(x[0]))))))
-        # l2 = self.relu(self.bn3(self.conv3(x[1])))
-        # feature = torch.cat([x[1] - 0.5 * texture_feature, x[1]], 1)
-        # invariant_feature = self.layer4(x[1] - 0.25 * texture_feature)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)

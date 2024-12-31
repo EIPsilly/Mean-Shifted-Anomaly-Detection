@@ -63,13 +63,13 @@ def calc_score(model, score_net, cluster_centers, dataloader, domain_key):
         with torch.no_grad():
             specific_feature, invariant_feature = model(img1)
             
-            cos_similarity = torch.mm(specific_feature, cluster_centers.T)
+            # cos_similarity = torch.mm(specific_feature, cluster_centers.T)
             output = score_net(invariant_feature)
 
             target_list.append(target.cpu().numpy())
             domain_label_list.append(domain_label.cpu().numpy())
             file_name_list.append(dataloader.dataset.image_paths[idx].reshape(-1))
-            cos_similarity_list.append(cos_similarity.cpu().numpy())
+            # cos_similarity_list.append(cos_similarity.cpu().numpy())
 
         total_pred = np.append(total_pred, output.cpu().numpy())
         total_target = np.append(total_target, target.cpu().numpy())
@@ -130,9 +130,10 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.ft_epochs, eta_min = min(args.ft_lr, args.score_lr) * 1e-6)
 
     sub_train_results_loss = []
+    cluster_centers = None
     global epoch
     for epoch in range(args.ft_epochs):
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         normal_score_list = []
         specific_feature_list = []
         with torch.no_grad():
@@ -144,27 +145,27 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
                 
                 scores = score_net(invariant_feature)
                 normal_score_list.append(scores[torch.where(label == 0)[0]])
-                specific_feature_list.append(specific_feature[torch.where(label == 0)[0]])
+                # specific_feature_list.append(specific_feature[torch.where(label == 0)[0]])
         
-            specific_feature_list = torch.cat(specific_feature_list)
-            dist_matrix = 1 - torch.mm(specific_feature_list, specific_feature_list.T)
-            dist_matrix = dist_matrix.detach().cpu().numpy()
-            sigma = 1.0
-            S = np.exp(- dist_matrix / (2 * sigma * sigma))
+            # specific_feature_list = torch.cat(specific_feature_list)
+            # dist_matrix = 1 - torch.mm(specific_feature_list, specific_feature_list.T)
+            # dist_matrix = dist_matrix.detach().cpu().numpy()
+            # sigma = 1.0
+            # S = np.exp(- dist_matrix / (2 * sigma * sigma))
 
-            spectral = SpectralClustering(
-                n_clusters=args.k_cluster, 
-                affinity='precomputed', 
-                assign_labels='kmeans',
-                random_state=42
-            )
-            labels = spectral.fit_predict(S)
-            init_k_center = torch.cat([torch.mean(specific_feature_list[labels == i], axis = 0) for i in range(args.k_cluster)], dim = -1).reshape(args.k_cluster, -1)
-            cluster_centers = F.normalize(init_k_center, dim=-1)
+            # spectral = SpectralClustering(
+            #     n_clusters=args.k_cluster, 
+            #     affinity='precomputed', 
+            #     assign_labels='kmeans',
+            #     random_state=42
+            # )
+            # labels = spectral.fit_predict(S)
+            # init_k_center = torch.cat([torch.mean(specific_feature_list[labels == i], axis = 0) for i in range(args.k_cluster)], dim = -1).reshape(args.k_cluster, -1)
+            # cluster_centers = F.normalize(init_k_center, dim=-1)
             
             
             normal_score_list = torch.concat(normal_score_list)
-            border = torch.cat([torch.quantile(normal_score_list[labels == i], args.quantile).reshape(1, 1) for i in range(args.k_cluster)])
+            border = torch.quantile(normal_score_list, args.quantile)
 
         model.train()
         score_net.train()
@@ -184,15 +185,27 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
 
             L_CL = contrastive_loss(invariant_feature[normal_idx], aug_invariant_feature[normal_idx])
             
-            cos_similarity = torch.mm(specific_feature[normal_idx], cluster_centers.T)
-            labels = torch.argmax(cos_similarity, dim = -1)
+            dist_matrix = 1 - torch.mm(specific_feature[normal_idx], specific_feature[normal_idx].T)
+            dist_matrix = dist_matrix.detach().cpu().numpy()
+            sigma = 1.0
+            S = np.exp(- dist_matrix / (2 * sigma * sigma))
+
+            spectral = SpectralClustering(
+                n_clusters=args.k_cluster, 
+                affinity='precomputed', 
+                assign_labels='kmeans',
+                random_state=42
+            )
+            labels = spectral.fit_predict(S)
+            labels = torch.from_numpy(labels)
 
             L_OT = args.lambda0 * calc_L_ot(specific_feature[normal_idx], labels)
 
             scores = score_net(invariant_feature)
             L_normal_score = 0
-            for i in range(args.k_cluster):
-                L_normal_score += (scores[normal_idx][labels == i] - border[i]).clamp_(min=0.).sum()
+            # for i in range(args.k_cluster):
+            #     L_normal_score += (scores[normal_idx][labels == i] - border[i]).clamp_(min=0.).sum()
+            L_normal_score += (scores[normal_idx] - border).clamp_(min=0.).sum()
 
             L_anomaly_score = (torch.max(border) + args.confidence_margin - scores[torch.where(label == 1)[0]]).clamp_(min=0.).sum()
 
@@ -381,9 +394,9 @@ if __name__ == "__main__":
     parser.add_argument("--supervised", type=str, default="semi-")
     parser.add_argument("--random_seed", type=int, default=42)
     parser.add_argument("--gpu", type=str, default="3")
-    parser.add_argument("--save_embedding", type=int, default=1)
+    parser.add_argument("--save_embedding", type=int, default=0)
     
-    # args = parser.parse_args(["--ft_epochs", "5" , "--ft_lr", "0.00005", "--score_lr", "0.001", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
+    # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()
 
     torch.manual_seed(args.random_seed)
