@@ -15,6 +15,7 @@ from datasets.MVTEC import MVTEC_Data
 from sklearn.cluster import SpectralClustering, AgglomerativeClustering
 import ot
 import geomloss
+import torch.optim.lr_scheduler as lr_scheduler
 
 def contrastive_loss(out_1, out_2):
     out_1 = F.normalize(out_1, dim=-1)
@@ -123,11 +124,12 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
     train_results_loss = []
     test_results_list = []
     
-    optimizer = optim.Adam([
-        {'params': model.parameters(), "lr": args.ft_lr},
-        {'params': score_net.parameters(), "lr": args.score_lr},
-    ], weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.ft_epochs, eta_min = min(args.ft_lr, args.score_lr) * 1e-6)
+    model_optimizer = optim.Adam(model.parameters(), lr = args.ft_lr, weight_decay=1e-5)
+    score_optimizer = optim.Adam(score_net.parameters(), lr = args.score_lr, weight_decay=1e-5)
+    model_scheduler = lr_scheduler.CosineAnnealingLR(model_optimizer, T_max=args.ft_epochs, eta_min = args.ft_lr * 1e-6)
+    score_scheduler = lr_scheduler.SequentialLR(score_optimizer, schedulers=[lr_scheduler.LinearLR(score_optimizer, start_factor=1, end_factor=1, total_iters=10),
+                                                                             lr_scheduler.CosineAnnealingLR(score_optimizer, T_max=args.ft_epochs, eta_min = args.score_lr * 1e-6)],
+                                                                             milestones=[10])
 
     sub_train_results_loss = []
     cluster_centers = None
@@ -176,7 +178,8 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
             
             img1, augimg, label = img1.to(device), augimg.to(device), label.to(device)
 
-            optimizer.zero_grad()
+            model_optimizer.zero_grad()
+            score_optimizer.zero_grad()
 
             normal_idx = torch.where(label == 0)[0]
 
@@ -217,7 +220,8 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
 
             loss.backward()
 
-            optimizer.step()
+            model_optimizer.step()
+            score_optimizer.step()
 
             total_num += img1.size(0)
             total_loss += loss.item()
@@ -227,7 +231,11 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
             else:
                 sub_train_loss_list.append([L_CL.item(), L_OT.item(), L_classfier.item()])
 
-        scheduler.step()
+        model_scheduler.step()
+        print("model_optimizer_lr", model_optimizer.state_dict()['param_groups'][0]['lr'])
+        score_scheduler.step()
+        print("score_optimizer_lr", score_optimizer.state_dict()['param_groups'][0]['lr'])
+
         running_loss = total_loss / (total_num)
         train_results_loss.append(running_loss)
         print('Epoch: {}, Loss: {}'.format(epoch + 1, running_loss))
