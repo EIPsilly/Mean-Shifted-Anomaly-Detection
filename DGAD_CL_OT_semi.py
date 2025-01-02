@@ -199,10 +199,10 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
                 assign_labels='kmeans',
                 random_state=42
             )
-            labels = spectral.fit_predict(S)
-            labels = torch.from_numpy(labels)
+            domain_labels = spectral.fit_predict(S)
+            domain_labels = torch.from_numpy(domain_labels)
 
-            L_OT = args.lambda0 * calc_L_ot(specific_feature[normal_idx], labels)
+            L_OT = args.lambda0 * calc_L_ot(specific_feature[normal_idx], domain_labels)
 
             scores = score_net(invariant_feature)
             L_normal_score = 0
@@ -210,7 +210,7 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
             #     L_normal_score += (scores[normal_idx][labels == i] - border[i]).clamp_(min=0.).sum()
             L_normal_score += (scores[normal_idx] - border).clamp_(min=0.).sum()
 
-            L_anomaly_score = (torch.max(border) + args.confidence_margin - scores[torch.where(label == 1)[0]]).clamp_(min=0.).sum()
+            L_anomaly_score = (border + args.confidence_margin - scores[torch.where(label == 1)[0]]).clamp_(min=0.).sum()
 
             if args.lambda1 != 0:
                 loss = L_CL + L_OT + min(epoch / 10, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
