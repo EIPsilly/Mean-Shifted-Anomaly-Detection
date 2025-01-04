@@ -1,5 +1,6 @@
 import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+import math
 import torch
 import torch.nn as nn
 from sklearn.metrics import roc_auc_score, auc, precision_recall_curve, average_precision_score
@@ -124,12 +125,14 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
     train_results_loss = []
     test_results_list = []
     
+    warmup_epoch = math.ceil(args.ft_epochs * args.warmup)
     model_optimizer = optim.Adam(model.parameters(), lr = args.ft_lr, weight_decay=1e-5)
     score_optimizer = optim.Adam(score_net.parameters(), lr = args.score_lr, weight_decay=1e-5)
-    model_scheduler = lr_scheduler.CosineAnnealingLR(model_optimizer, T_max=args.ft_epochs, eta_min = args.ft_lr * 1e-6)
-    score_scheduler = lr_scheduler.SequentialLR(score_optimizer, schedulers=[lr_scheduler.LinearLR(score_optimizer, start_factor=1, end_factor=1, total_iters=10),
-                                                                             lr_scheduler.CosineAnnealingLR(score_optimizer, T_max=args.ft_epochs, eta_min = args.score_lr * 1e-6)],
-                                                                             milestones=[10])
+    if args.use_scheduler == 1:
+        model_scheduler = lr_scheduler.CosineAnnealingLR(model_optimizer, T_max=args.ft_epochs, eta_min = args.ft_lr * 1e-6)
+        score_scheduler = lr_scheduler.SequentialLR(score_optimizer, schedulers=[lr_scheduler.LinearLR(score_optimizer, start_factor=1, end_factor=1, total_iters=warmup_epoch),
+                                                                                lr_scheduler.CosineAnnealingLR(score_optimizer, T_max=args.ft_epochs, eta_min = args.score_lr * 1e-6)],
+                                                                                milestones=[warmup_epoch])
 
     sub_train_results_loss = []
     cluster_centers = None
@@ -182,6 +185,7 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
             score_optimizer.zero_grad()
 
             normal_idx = torch.where(label == 0)[0]
+            anomaly_idx = torch.where(label == 1)[0]
 
             specific_feature, invariant_feature = model(img1)
             _, aug_invariant_feature = model(augimg)
@@ -210,10 +214,10 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
             #     L_normal_score += (scores[normal_idx][labels == i] - border[i]).clamp_(min=0.).sum()
             L_normal_score += (scores[normal_idx] - border).clamp_(min=0.).sum()
 
-            L_anomaly_score = (border + args.confidence_margin - scores[torch.where(label == 1)[0]]).clamp_(min=0.).sum()
+            L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).sum()
 
             if args.lambda1 != 0:
-                loss = L_CL + L_OT + min(epoch / 10, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
+                loss = L_CL + L_OT + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
             else:
                 L_classfier = torch.nn.BCELoss()(torch.sigmoid(scores.reshape(-1)), label.to(torch.float32))
                 loss = L_CL + L_OT + L_classfier
@@ -231,10 +235,11 @@ def train_model(model, score_net, train_loader, unlabeled_loader, val_loader, te
             else:
                 sub_train_loss_list.append([L_CL.item(), L_OT.item(), L_classfier.item()])
 
-        model_scheduler.step()
-        print("model_optimizer_lr", model_optimizer.state_dict()['param_groups'][0]['lr'])
-        score_scheduler.step()
-        print("score_optimizer_lr", score_optimizer.state_dict()['param_groups'][0]['lr'])
+        if args.use_scheduler == 1:
+            model_scheduler.step()
+            print("model_optimizer_lr", model_optimizer.state_dict()['param_groups'][0]['lr'])
+            score_scheduler.step()
+            print("score_optimizer_lr", score_optimizer.state_dict()['param_groups'][0]['lr'])
 
         running_loss = total_loss / (total_num)
         train_results_loss.append(running_loss)
@@ -385,7 +390,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--backbone', default='wide_resnet50_2', type=str, help='ResNet 18/152')
     parser.add_argument('--angular', action='store_true', help='Train with angular center loss')
-    parser.add_argument('--workers', type=int, default=32, metavar='N', help='dataloader threads')
+    parser.add_argument('--workers', type=int, default=8, metavar='N', help='dataloader threads')
     parser.add_argument('--experiment_dir', type=str, default='/experiment', help="experiment dir root")
     parser.add_argument("--results_save_path", type=str, default="/DEBUG")
     parser.add_argument("--test_epoch", type=int, default=5)
@@ -403,6 +408,8 @@ if __name__ == "__main__":
     parser.add_argument("--random_seed", type=int, default=42)
     parser.add_argument("--gpu", type=str, default="3")
     parser.add_argument("--save_embedding", type=int, default=0)
+    parser.add_argument("--warmup", type=float, default=0.25)
+    parser.add_argument("--use_scheduler", type=int, default=1)
     
     # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()
@@ -418,7 +425,7 @@ if __name__ == "__main__":
         os.makedirs(f"results{args.results_save_path}")
 
     if args.dataset == "PACS":
-        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},warmup={args.warmup},use_scheduler={args.use_scheduler},cnt={args.cnt}'
     if args.dataset == "MVTEC":
         filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
     main(args)

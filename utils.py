@@ -3,7 +3,6 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 import numpy as np
-import faiss
 import torchvision.models as models
 import torch.nn.functional as F
 from PIL import ImageFilter
@@ -169,16 +168,6 @@ def freeze_parameters(model, backbone, train_fc=False):
         for p in model.layer2.parameters():
             p.requires_grad = False
 
-
-
-def knn_score(train_set, test_set, n_neighbours=2):
-    """
-    Calculates the KNN distance
-    """
-    index = faiss.IndexFlatL2(train_set.shape[1])
-    index.add(train_set)
-    D, _ = index.search(test_set, n_neighbours)
-    return np.sum(D, axis=1)
 
 
 def get_loaders(dataset, label_class, batch_size, backbone):
