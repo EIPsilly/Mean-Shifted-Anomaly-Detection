@@ -387,6 +387,7 @@ class AttnBottleneck(nn.Module):
 
 class BN_layer(nn.Module):
     def __init__(self,
+                 args,
                  block: Type[Union[BasicBlock, Bottleneck]],
                  layers: List[int],
                  groups: int = 1,
@@ -425,6 +426,7 @@ class BN_layer(nn.Module):
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+        self.args = args
 
     def _make_layer(self, block: Type[Union[BasicBlock, Bottleneck]], planes: int, blocks: int,
                     stride: int = 1, dilate: bool = False) -> nn.Sequential:
@@ -452,9 +454,12 @@ class BN_layer(nn.Module):
         return nn.Sequential(*layers)
 
     def _forward_impl(self, x: Tensor) -> Tensor:
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
+        if self.args.conv_layer == 1:
+            x = self.layer2(x)
+        elif self.args.conv_layer == 2:
+            x = self.layer3(x)
+        elif self.args.conv_layer == 3:
+            x = self.layer4(x)
         # x = self.avgpool(feature)
         # x = torch.flatten(x, 1)
         # x = self.fc(x)
@@ -465,6 +470,7 @@ class BN_layer(nn.Module):
         return self._forward_impl(x)
 
 def _BN_layer(
+        args,
         arch: str,
         block: Type[Union[BasicBlock, Bottleneck]],
         layers: List[int],
@@ -472,7 +478,7 @@ def _BN_layer(
         progress: bool,
         **kwargs: Any
     ):
-    model = BN_layer(block, layers, **kwargs)
+    model = BN_layer(args, block, layers, **kwargs)
     if pretrained:
         state_dict = load_state_dict_from_url(model_urls[arch],
                                               progress=progress)

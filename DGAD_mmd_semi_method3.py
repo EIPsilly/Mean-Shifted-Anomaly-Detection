@@ -3,7 +3,7 @@ import torch
 from sklearn.metrics import roc_auc_score, auc, precision_recall_curve, average_precision_score
 import torch.optim as optim
 import argparse
-import utils
+import net_work
 from tqdm import tqdm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -309,7 +309,7 @@ def main(args):
     print('Dataset: {}, Normal Label: {}, LR: {}'.format(args.dataset, args.label, args.lr))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(device)
-    model = utils.Model(args)
+    model = net_work.Model(args)
     global mmd
     mmd = MMDLoss(pooled=True)
     mmd = mmd.to(device)
@@ -323,7 +323,7 @@ def main(args):
     center = train_model(model, unlabeled_loader, val_loader, test_loader, device, args)
 
     print("\n===================\nfine_tune_model\n===================\n")
-    score_net = utils.ScoreNet(args)
+    score_net = net_work.ScoreNet(args)
     score_net = score_net.to(device)
     fine_tune_model(center, model, score_net, train_loader, unlabeled_loader, val_loader, test_loader, device, args)
 

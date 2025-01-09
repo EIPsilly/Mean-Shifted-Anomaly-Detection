@@ -4,7 +4,7 @@ import torch
 from sklearn.metrics import roc_auc_score, auc, precision_recall_curve
 import torch.optim as optim
 import argparse
-import utils
+import net_work
 from tqdm import tqdm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -111,7 +111,7 @@ def test(model, train_loader, test_loader):
             test_feature_space = torch.cat(test_feature_space, dim=0).contiguous().cpu().numpy()
             test_labels = torch.cat(test_labels, dim=0).cpu().numpy()
 
-        distances = utils.knn_score(train_feature_space, test_feature_space)
+        distances = net_work.knn_score(train_feature_space, test_feature_space)
 
         roc = roc_auc_score(test_labels, distances)
         precision, recall, threshold = precision_recall_curve(test_labels, distances)
@@ -176,7 +176,7 @@ def get_score(model, device, train_loader, test_loader):
         test_feature_space = torch.cat(test_feature_space, dim=0).contiguous().cpu().numpy()
         test_labels = torch.cat(test_labels, dim=0).cpu().numpy()
 
-    distances = utils.knn_score(train_feature_space, test_feature_space)
+    distances = net_work.knn_score(train_feature_space, test_feature_space)
 
     roc = roc_auc_score(test_labels, distances)
     precision, recall, threshold = precision_recall_curve(test_labels, distances)
@@ -209,7 +209,7 @@ def main(args):
     print('Dataset: {}, Normal Label: {}, LR: {}'.format(args.dataset, args.label, args.lr))
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
-    model = utils.Model(args)
+    model = net_work.Model(args)
     global mmd
     mmd = MMDLoss(pooled=True)
     mmd = mmd.to(device)

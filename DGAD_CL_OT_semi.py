@@ -6,7 +6,7 @@ import torch.nn as nn
 from sklearn.metrics import roc_auc_score, auc, precision_recall_curve, average_precision_score
 import torch.optim as optim
 import argparse
-import utils
+import net_work
 from tqdm import tqdm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -358,7 +358,7 @@ def main(args):
     print('Dataset: {}, Normal Label: {}, LR: {}'.format(args.dataset, args.label, args.lr))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(device)
-    model = utils.Multi_Scale_Model(args)
+    model = net_work.Multi_Scale_Model(args)
     model = model.to(device)
     # model = DGAD_net(args)
 
@@ -368,7 +368,7 @@ def main(args):
     train_loader, val_loader, test_loader, unlabeled_loader = build_dataloader(args, **kwargs)
     
     print("\n===================\ntrain_model\n===================\n")
-    score_net = utils.ScoreNet(args)
+    score_net = net_work.ScoreNet(args)
     score_net = score_net.to(device)
     train_model(model, score_net, train_loader, unlabeled_loader, val_loader, test_loader, device, args)
 
@@ -410,6 +410,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_embedding", type=int, default=0)
     parser.add_argument("--warmup", type=float, default=0.25)
     parser.add_argument("--use_scheduler", type=int, default=1)
+    parser.add_argument("--conv_layer", type=int, default=4)
     
     # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()
@@ -425,7 +426,7 @@ if __name__ == "__main__":
         os.makedirs(f"results{args.results_save_path}")
 
     if args.dataset == "PACS":
-        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},warmup={args.warmup},use_scheduler={args.use_scheduler},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},warmup={args.warmup},use_scheduler={args.use_scheduler},conv_layer={args.conv_layer},cnt={args.cnt}'
     if args.dataset == "MVTEC":
         filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
     main(args)

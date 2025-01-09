@@ -182,8 +182,11 @@ class PACS_Data():
         if not "supervised" in args:
             args.supervised = "un"
         
-        train_path = f'../domain-generalization-for-anomaly-detection/data/pacs/{args.supervised}supervised/{args.domain_cnt}domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
-        
+        if args.domain_cnt == 3:
+            train_path = f'../domain-generalization-for-anomaly-detection/data/pacs/{args.supervised}supervised/{args.domain_cnt}domain/20240412-PACS-{normal_class}-{anomaly_class}.npz'
+        elif args.domain_cnt == 1:
+            train_path = f'../domain-generalization-for-anomaly-detection/data/pacs/{args.supervised}supervised/{args.domain_cnt}domain/20241124-PACS-{normal_class}-{anomaly_class}.npz'
+
         if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
             pass
         else:
