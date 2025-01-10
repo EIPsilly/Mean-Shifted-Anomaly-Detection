@@ -157,18 +157,27 @@ def train_model(score_net, device, args):
     for epoch in range(args.ft_epochs):
         # torch.cuda.empty_cache()
         normal_score_list = []
-        specific_feature_list = []
+        feature1_list = []
+        feature2_list = []
         with torch.no_grad():
             score_net.eval()
             model.eval()
-            for (_, img1, _, _, label, _) in tqdm(unlabeled_loader, desc='init...'):
+            for (_, img1, _, _, label, _) in tqdm(train_loader, desc='init...'):
                 img1, label = img1.to(device), label.to(device)
-                invariant_feature = model(img1)
+
+                img1 = img1[torch.where(label == 0)[0]]
                 
+                invariant_feature = model(img1)
+                feature1, feature2 = model.normal_feature_sample(img1)
+                
+                feature1_list.append(feature1)
+                feature2_list.append(feature2)
+
                 scores = score_net(invariant_feature)
-                normal_score_list.append(scores[torch.where(label == 0)[0]])
+                normal_score_list.append(scores)
             
-            
+            feature1_list = torch.concat(feature1_list).detach()
+            feature2_list = torch.concat(feature2_list).detach()
             normal_score_list = torch.concat(normal_score_list)
             border = torch.quantile(normal_score_list, args.quantile)
 
@@ -190,10 +199,12 @@ def train_model(score_net, device, args):
 
             invariant_feature = model(img1)
             aug_invariant_feature = model(augimg)
-            gray_feature = model(gray_img)
+            # gray_feature = model(gray_img)
+            align_feature = model.inference(img1, feature1_list, feature2_list)
 
             L_CL1 = contrastive_loss(invariant_feature, aug_invariant_feature)
-            L_CL2 = contrastive_loss(invariant_feature, gray_feature)
+            # L_CL2 = contrastive_loss(invariant_feature, gray_feature)
+            L_CL2 = contrastive_loss(invariant_feature, align_feature)
             
             scores = score_net(invariant_feature)
             L_normal_score = (scores[normal_idx] - border).clamp_(min=0.).mean()

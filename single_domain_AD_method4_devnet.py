@@ -19,6 +19,21 @@ import ot
 import geomloss
 import torch.optim.lr_scheduler as lr_scheduler
 
+class DeviationLoss(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, y_pred, y_true):
+        confidence_margin = 5.
+        # size=5000 is the setting of l in algorithm 1 in the paper
+        ref = torch.normal(mean=0., std=torch.full([5000], 1.)).cuda()
+        dev = (y_pred - torch.mean(ref)) / torch.std(ref)
+        inlier_loss = torch.abs(dev)
+        outlier_loss = torch.abs((confidence_margin - dev).clamp_(min=0.))
+        return torch.mean((1 - y_true) * inlier_loss + y_true * outlier_loss)
+
+
 def contrastive_loss(out_1, out_2):
     out_1 = F.normalize(out_1, dim=-1)
     out_2 = F.normalize(out_2, dim=-1)
@@ -196,15 +211,16 @@ def train_model(score_net, device, args):
             L_CL2 = contrastive_loss(invariant_feature, gray_feature)
             
             scores = score_net(invariant_feature)
-            L_normal_score = (scores[normal_idx] - border).clamp_(min=0.).mean()
+            # L_normal_score = (scores[normal_idx] - border).clamp_(min=0.).mean()
 
-            L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).mean()
+            # L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).mean()
+            L_devnet = DeviationLoss()(scores, label)
 
             if args.lambda1 != 0:
-                loss = args.lambda0 * (L_CL1 + L_CL2) + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
+                loss = args.lambda0 * (L_CL1 + L_CL2) + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_devnet)
             else:
                 L_classfier = torch.nn.BCELoss()(torch.sigmoid(scores.reshape(-1)), label.to(torch.float32))
-                loss = args.lambda0 * (L_CL1 + L_CL2) + L_classfier
+                loss = args.lambda0 * (L_CL1 + L_CL2) + args.lambda1 * L_classfier
 
             loss.backward()
 
@@ -215,7 +231,7 @@ def train_model(score_net, device, args):
             total_loss += loss.item()
             train_loss_list.append(loss.item())
             if args.lambda1 != 0:
-                sub_train_loss_list.append([L_CL1.item(), L_CL2.item(), L_normal_score.item(), L_anomaly_score.item()])
+                sub_train_loss_list.append([L_CL1.item(), L_CL2.item(), L_devnet.item()])
             else:
                 sub_train_loss_list.append([L_CL1.item(), L_CL2.item(), L_classfier.item()])
 
@@ -384,7 +400,7 @@ if __name__ == "__main__":
     parser.add_argument("--lambda0", type=int, default=1)
     parser.add_argument("--lambda1", type=int, default=1)
     parser.add_argument("--no_center", type=int, default=1)
-    parser.add_argument("--freeze_m", type=int, default=0)
+    parser.add_argument("--freeze_m", type=int, default=1)
     parser.add_argument("--freeze", type=int, default=0)
     parser.add_argument("--quantile", type=float, default=1.0)
     parser.add_argument("--temperature", type=float, default=0.25)
