@@ -89,7 +89,7 @@ def train_model(model, train_loader, val_loader, test_loader, device, args):
 def test(model, train_loader, test_loader):
     train_feature_space = []
     with torch.no_grad():
-        for (idx, imgs, augimg, label) in tqdm(train_loader, desc='Train set feature extracting'):
+        for (idx, imgs, augimg, label, _) in tqdm(train_loader, desc='Train set feature extracting'):
             imgs = imgs.cuda()
             features = model(imgs)
             train_feature_space.append(features)
@@ -101,7 +101,7 @@ def test(model, train_loader, test_loader):
         test_feature_space = []
         test_labels = []
         with torch.no_grad():
-            for (idx, imgs, augimg, labels) in tqdm(test_loader[key], desc='Test set feature extracting'):
+            for (idx, imgs, augimg, labels, _) in tqdm(test_loader[key], desc='Test set feature extracting'):
                 imgs = imgs.cuda()
                 features = model(imgs)
                 test_feature_space.append(features)
@@ -126,7 +126,7 @@ def test(model, train_loader, test_loader):
 
 def run_epoch(model, train_loader, optimizer, center, device, is_angular):
     total_loss, total_num = 0.0, 0
-    for (idx, img1, img2, label) in tqdm(train_loader, desc='Train...'):
+    for (idx, img1, img2, label, _) in tqdm(train_loader, desc='Train...'):
         
         img1, img2 = img1.to(device), img2.to(device)
 
@@ -155,7 +155,7 @@ def run_epoch(model, train_loader, optimizer, center, device, is_angular):
 def get_score(model, device, train_loader, test_loader):
     train_feature_space = []
     with torch.no_grad():
-        for (idx, imgs, augimg, label) in tqdm(train_loader, desc='Train set feature extracting'):
+        for (idx, imgs, augimg, label, _) in tqdm(train_loader, desc='Train set feature extracting'):
             imgs = imgs.to(device)
             features = model(imgs)
             train_feature_space.append(features)
@@ -163,7 +163,7 @@ def get_score(model, device, train_loader, test_loader):
     test_feature_space = []
     test_labels = []
     with torch.no_grad():
-        for (idx, imgs, augimg, labels) in tqdm(test_loader, desc='Test set feature extracting'):
+        for (idx, imgs, augimg, labels, _) in tqdm(test_loader, desc='Test set feature extracting'):
             imgs = imgs.to(device)
             features = model(imgs)
             test_feature_space.append(features)
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_dir', type=str, default='/experiment', help="experiment dir root")
     parser.add_argument("--results_save_path", type=str, default="/DEBUG")
     parser.add_argument("--test_epoch", type=int, default=5)
-    parser.add_argument("--domain_cnt", type=int, default=3)
+    parser.add_argument("--domain_cnt", type=int, default=1)
     parser.add_argument("--cnt", type=int, default=0)
     
     args = parser.parse_args()
