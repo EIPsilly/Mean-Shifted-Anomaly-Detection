@@ -1,5 +1,6 @@
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+from torch.utils.data import Sampler
+from datasets.base_dataset import BaseADDataset
 import math
 import torch
 import torch.nn as nn
@@ -53,7 +54,7 @@ def calc_score(score_net, cluster_centers, dataloader, domain_key):
     feature2_list = []
     for sample in train_loader:
         # image, target = sample['image'], sample['label']
-        idx, image, augimg, target, domain_label = sample
+        idx, image, augimg, _, target, domain_label = sample
 
         image = image[torch.where(target == 0)[0]].cuda()
         with torch.no_grad():
@@ -76,7 +77,7 @@ def calc_score(score_net, cluster_centers, dataloader, domain_key):
     file_name_list = []
     cos_similarity_list = []
     for i, sample in enumerate(dataloader):
-        idx, img1, augimg, target, domain_label = sample
+        idx, img1, augimg, _, target, domain_label = sample
         img1, target, domain_label = img1.cuda(), target.cuda(), domain_label.cuda()
         with torch.no_grad():
             invariant_feature = model.inference(img1, feature1_list, feature2_list)
@@ -131,7 +132,7 @@ def test_after_fine_tune(score_net, cluster_centers, test_loader):
     return test_metric
 
 
-def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_loader, device, args):
+def train_model(score_net, device, args):
     
     val_max_metric = {"AUROC": -1,
                       "AUPRC": -1}
@@ -160,29 +161,12 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
         with torch.no_grad():
             score_net.eval()
             model.eval()
-            for (_, img1, _, label, _) in tqdm(unlabeled_loader, desc='init...'):
+            for (_, img1, _, _, label, _) in tqdm(unlabeled_loader, desc='init...'):
                 img1, label = img1.to(device), label.to(device)
                 invariant_feature = model(img1)
                 
                 scores = score_net(invariant_feature)
                 normal_score_list.append(scores[torch.where(label == 0)[0]])
-                # specific_feature_list.append(specific_feature[torch.where(label == 0)[0]])
-        
-            # specific_feature_list = torch.cat(specific_feature_list)
-            # dist_matrix = 1 - torch.mm(specific_feature_list, specific_feature_list.T)
-            # dist_matrix = dist_matrix.detach().cpu().numpy()
-            # sigma = 1.0
-            # S = np.exp(- dist_matrix / (2 * sigma * sigma))
-
-            # spectral = SpectralClustering(
-            #     n_clusters=args.k_cluster, 
-            #     affinity='precomputed', 
-            #     assign_labels='kmeans',
-            #     random_state=42
-            # )
-            # labels = spectral.fit_predict(S)
-            # init_k_center = torch.cat([torch.mean(specific_feature_list[labels == i], axis = 0) for i in range(args.k_cluster)], dim = -1).reshape(args.k_cluster, -1)
-            # cluster_centers = F.normalize(init_k_center, dim=-1)
             
             
             normal_score_list = torch.concat(normal_score_list)
@@ -193,9 +177,10 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
         total_loss, total_num = 0.0, 0
         train_loss_list = []
         sub_train_loss_list = []
-        for (idx, img1, augimg, label, _) in tqdm(train_loader, desc='Train...'):
+        training_data_loader = balance_loader if args.BalancedBatchSampler == 1 else train_loader
+        for (idx, img1, augimg, gray_img, label, _) in tqdm(training_data_loader, desc='Train...'):
             
-            img1, augimg, label = img1.to(device), augimg.to(device), label.to(device)
+            img1, augimg, gray_img, label = img1.to(device), augimg.to(device), gray_img.to(device), label.to(device)
 
             model_optimizer.zero_grad()
             score_optimizer.zero_grad()
@@ -205,20 +190,21 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
 
             invariant_feature = model(img1)
             aug_invariant_feature = model(augimg)
+            gray_feature = model(gray_img)
 
-            L_CL = contrastive_loss(invariant_feature[normal_idx], aug_invariant_feature[normal_idx])
+            L_CL1 = contrastive_loss(invariant_feature, aug_invariant_feature)
+            L_CL2 = contrastive_loss(invariant_feature, gray_feature)
             
             scores = score_net(invariant_feature)
-            L_normal_score = 0
-            L_normal_score += (scores[normal_idx] - border).clamp_(min=0.).sum()
+            L_normal_score = (scores[normal_idx] - border).clamp_(min=0.).mean()
 
-            L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).sum()
+            L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).mean()
 
             if args.lambda1 != 0:
-                loss = L_CL + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
+                loss = L_CL1 + L_CL2 + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
             else:
                 L_classfier = torch.nn.BCELoss()(torch.sigmoid(scores.reshape(-1)), label.to(torch.float32))
-                loss = L_CL + L_classfier
+                loss = L_CL1 + L_CL2 + L_classfier
 
             loss.backward()
 
@@ -229,9 +215,9 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
             total_loss += loss.item()
             train_loss_list.append(loss.item())
             if args.lambda1 != 0:
-                sub_train_loss_list.append([L_CL.item(), L_normal_score.item(), L_anomaly_score.item()])
+                sub_train_loss_list.append([L_CL1.item(), L_CL2.item(), L_normal_score.item(), L_anomaly_score.item()])
             else:
-                sub_train_loss_list.append([L_CL.item(), L_classfier.item()])
+                sub_train_loss_list.append([L_CL1.item(), L_CL2.item(), L_classfier.item()])
 
         if args.use_scheduler == 1:
             model_scheduler.step()
@@ -281,55 +267,50 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
              test_metric = np.array(test_metric),
              args = np.array(args.__dict__),)
 
-# 兼容geomloss提供的'euclidean'
-# 注意：geomloss要求cost func计算两个batch的距离，也即接受(B, N, D)
-def cost_func(a, b, p=2, metric='cosine'):
-    """ a, b in shape: (B, N, D) or (N, D)
-    """ 
-    assert type(a)==torch.Tensor and type(b)==torch.Tensor, 'inputs should be torch.Tensor'
-    if metric=='euclidean' and p==1:
-        return geomloss.utils.distances(a, b)
-    elif metric=='euclidean' and p==2:
-        return geomloss.utils.squared_distances(a, b)
-    else:
-        if a.dim() == 3:
-            x_norm = a / a.norm(dim=2)[:, :, None]
-            y_norm = b / b.norm(dim=2)[:, :, None]
-            M = 1 - torch.bmm(x_norm, y_norm.transpose(-1, -2))
-        elif a.dim() == 2:
-            x_norm = a / a.norm(dim=1)[:, None]
-            y_norm = b / b.norm(dim=1)[:, None]
-            M = 1 - torch.mm(x_norm, y_norm.transpose(0, 1))
-        M = pow(M, p)
-        return M
+def worker_init_fn_seed(worker_id):
+    seed = 10
+    seed += worker_id
+    np.random.seed(seed)
 
-def calc_ot(x, y, p = 2, metric = 'cosine'):
-    entreg = .1
-    OTLoss = geomloss.SamplesLoss(
-        loss='sinkhorn', p=p,
-        cost=lambda a, b: cost_func(a, b, p=p, metric=metric),
-        blur=entreg**(1/p), backend='tensorized')
-    pW = OTLoss(x, y)
 
-    return pW
+class BalancedBatchSampler(Sampler):
+    def __init__(self,
+                 cfg,
+                 dataset: BaseADDataset):
+        super(BalancedBatchSampler, self).__init__(dataset)
+        self.cfg = cfg
+        self.dataset = dataset
 
-def calc_L_ot(x, labels):
-    envs = labels.unique(sorted=True)
-    cost = []
-    for i in envs:
-        for j in envs:
-            if i >= j:
-                continue
-            domain_i = torch.where(torch.eq(labels, i))[0]
-            domain_j = torch.where(torch.eq(labels, j))[0]
-            if len(domain_i) < 1 or len(domain_j) < 1:
-                continue
-            
-            single_res = calc_ot(x[domain_i], x[domain_j])
-            cost.append(single_res.reshape(1, -1))
+        self.normal_generator = self.random_generator(self.dataset.normal_idx)
+        self.outlier_generator = self.random_generator(self.dataset.outlier_idx)
+        if self.cfg.n_anomaly != 0:
+            self.n_normal = self.cfg.batch_size // 2
+            self.n_outlier = self.cfg.batch_size - self.n_normal
+        else:
+            self.n_normal = self.cfg.batch_size
+            self.n_outlier = 0
 
-    cost = torch.cat(cost)
-    return torch.sum(cost)
+    @staticmethod
+    def random_generator(idx_list):
+        while True:
+            random_list = np.random.permutation(idx_list)
+            for i in random_list:
+                yield i
+
+    def __len__(self):
+        return self.cfg.steps_per_epoch
+    
+    def __iter__(self):
+        for _ in range(self.cfg.steps_per_epoch):
+            batch = []
+
+            for _ in range(self.n_normal):
+                batch.append(next(self.normal_generator))
+
+            for _ in range(self.n_outlier):
+                batch.append(next(self.outlier_generator))
+            yield batch
+
 
 def build_dataloader(args, **kwargs):
 
@@ -349,8 +330,10 @@ def build_dataloader(args, **kwargs):
     
     unlabeled_data = data.unlabeled_data
     unlabeled_loader = DataLoader(unlabeled_data, batch_size=args.batch_size, num_workers = args.workers, drop_last=True)
+
+    balance_loader = DataLoader(train_set, worker_init_fn=worker_init_fn_seed, batch_sampler=BalancedBatchSampler(args, train_set), **kwargs)
     
-    return train_loader, val_loader, test_loader, unlabeled_loader
+    return train_loader, val_loader, test_loader, unlabeled_loader, balance_loader
 
 def main(args):
     print('Dataset: {}, Normal Label: {}, LR: {}'.format(args.dataset, args.label, args.lr))
@@ -363,13 +346,13 @@ def main(args):
     # train_loader, test_loader, train_loader_1 = utils.get_loaders(dataset=args.dataset, label_class=args.label, batch_size=args.batch_size, backbone=args.backbone)
     kwargs = {'num_workers': args.workers}
     # _, val_loader, test_loader, train_loader = build_dataloader(args, **kwargs)
-    global train_loader, val_loader, test_loader, unlabeled_loader
-    train_loader, val_loader, test_loader, unlabeled_loader = build_dataloader(args, **kwargs)
+    global train_loader, val_loader, test_loader, unlabeled_loader, balance_loader
+    train_loader, val_loader, test_loader, unlabeled_loader, balance_loader = build_dataloader(args, **kwargs)
     
     print("\n===================\ntrain_model\n===================\n")
     score_net = net_work2.ScoreNet(args)
     score_net = score_net.to(device)
-    train_model(score_net, train_loader, unlabeled_loader, val_loader, test_loader, device, args)
+    train_model(score_net, device, args)
 
 
 if __name__ == "__main__":
@@ -386,13 +369,15 @@ if __name__ == "__main__":
     parser.add_argument('--ft_lr', type=float, default=1e-5, help='The fine tune learning rate.')
     parser.add_argument('--score_lr', type=float, default=1e-3, help='The fine tune learning rate.')
     parser.add_argument('--confidence_margin', type=float, default=3, help='confidence_margin.')
-    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--backbone', default='wide_resnet50_2', type=str, help='ResNet 18/152')
     parser.add_argument('--angular', action='store_true', help='Train with angular center loss')
     parser.add_argument('--workers', type=int, default=8, metavar='N', help='dataloader threads')
     parser.add_argument('--experiment_dir', type=str, default='/experiment', help="experiment dir root")
     parser.add_argument("--results_save_path", type=str, default="/DEBUG")
     parser.add_argument("--test_epoch", type=int, default=5)
+    parser.add_argument("--n_anomaly", type=int, default=10)
+    parser.add_argument("--steps_per_epoch", type=int, default=5, help="the number of batches per epoch")
     parser.add_argument("--k_cluster", type=int, default=3)
     parser.add_argument("--domain_cnt", type=int, default=1)
     parser.add_argument("--cnt", type=int, default=0)
@@ -408,10 +393,11 @@ if __name__ == "__main__":
     parser.add_argument("--gpu", type=str, default="3")
     parser.add_argument("--save_embedding", type=int, default=0)
     parser.add_argument("--warmup", type=float, default=0.25)
-    parser.add_argument("--use_scheduler", type=int, default=1)
+    parser.add_argument("--use_scheduler", type=int, default=0)
     parser.add_argument("--conv_layer", type=int, default=4)
     parser.add_argument("--test_type", type=str, default="sample_align")
-    parser.add_argument("--gray", type=int, default=0)
+    parser.add_argument("--gray", type=int, default=1)
+    parser.add_argument("--BalancedBatchSampler", type=int, default=1)
     
     # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()
@@ -427,7 +413,7 @@ if __name__ == "__main__":
         os.makedirs(f"results{args.results_save_path}")
 
     if args.dataset == "PACS":
-        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},warmup={args.warmup},use_scheduler={args.use_scheduler},conv_layer={args.conv_layer},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},cnt={args.cnt}'
     if args.dataset == "MVTEC":
         filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
     main(args)

@@ -1,4 +1,5 @@
 import torch
+import faiss
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
@@ -116,18 +117,6 @@ def sample_align(input, target, lamda = 0.5):
     lamda = 1-lamda
     B, C, W, H = input.size(0), input.size(1), input.size(2), input.size(3)
     B2 = target.shape[0]
-    # input = input.view(B, C, -1)
-    # target = target.view(B, C, -1)
-    # for b in range(B):
-    #     for c in range(C):
-    #         for h in range(H):
-    #             for w in range(W):
-    #                 # 从 target 的第 0 维 (B2) 中随机选择一个索引
-    #                 sampled_index = torch.randint(0, B2, (1,)).item()
-    #                 sampled_value = target_tensor[sampled_index, c, h, w]
-                    
-    #                 # 将采样值添加到 input 对应位置
-    #                 output_tensor[b, c, h, w] += sampled_value
 
     random_index = torch.randint(0, target.shape[0], (B, C, H, W))
     sampled_values = target[random_index, torch.arange(C)[None, :, None, None], torch.arange(H)[None, None, :, None], torch.arange(W)[None, None, None, :]]
@@ -318,7 +307,14 @@ def freeze_parameters(model, backbone, train_fc=False):
         for p in model.layer2.parameters():
             p.requires_grad = False
 
-
+def knn_score(train_set, test_set, n_neighbours=2):
+    """
+    Calculates the KNN distance
+    """
+    index = faiss.IndexFlatL2(train_set.shape[1])
+    index.add(train_set)
+    D, _ = index.search(test_set, n_neighbours)
+    return np.sum(D, axis=1)
 
 def get_loaders(dataset, label_class, batch_size, backbone):
     if dataset == "cifar10":

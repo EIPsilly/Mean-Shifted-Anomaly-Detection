@@ -53,7 +53,7 @@ def calc_score(score_net, cluster_centers, dataloader, domain_key):
     feature2_list = []
     for sample in train_loader:
         # image, target = sample['image'], sample['label']
-        idx, image, augimg, target, domain_label = sample
+        idx, image, augimg, _, target, domain_label = sample
 
         image = image[torch.where(target == 0)[0]].cuda()
         with torch.no_grad():
@@ -76,7 +76,7 @@ def calc_score(score_net, cluster_centers, dataloader, domain_key):
     file_name_list = []
     cos_similarity_list = []
     for i, sample in enumerate(dataloader):
-        idx, img1, augimg, target, domain_label = sample
+        idx, img1, augimg, _, target, domain_label = sample
         img1, target, domain_label = img1.cuda(), target.cuda(), domain_label.cuda()
         with torch.no_grad():
             invariant_feature = model.inference(img1, feature1_list, feature2_list)
@@ -160,29 +160,12 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
         with torch.no_grad():
             score_net.eval()
             model.eval()
-            for (_, img1, _, label, _) in tqdm(unlabeled_loader, desc='init...'):
+            for (_, img1, _, _, label, _) in tqdm(unlabeled_loader, desc='init...'):
                 img1, label = img1.to(device), label.to(device)
                 invariant_feature = model(img1)
                 
                 scores = score_net(invariant_feature)
                 normal_score_list.append(scores[torch.where(label == 0)[0]])
-                # specific_feature_list.append(specific_feature[torch.where(label == 0)[0]])
-        
-            # specific_feature_list = torch.cat(specific_feature_list)
-            # dist_matrix = 1 - torch.mm(specific_feature_list, specific_feature_list.T)
-            # dist_matrix = dist_matrix.detach().cpu().numpy()
-            # sigma = 1.0
-            # S = np.exp(- dist_matrix / (2 * sigma * sigma))
-
-            # spectral = SpectralClustering(
-            #     n_clusters=args.k_cluster, 
-            #     affinity='precomputed', 
-            #     assign_labels='kmeans',
-            #     random_state=42
-            # )
-            # labels = spectral.fit_predict(S)
-            # init_k_center = torch.cat([torch.mean(specific_feature_list[labels == i], axis = 0) for i in range(args.k_cluster)], dim = -1).reshape(args.k_cluster, -1)
-            # cluster_centers = F.normalize(init_k_center, dim=-1)
             
             
             normal_score_list = torch.concat(normal_score_list)
@@ -193,9 +176,9 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
         total_loss, total_num = 0.0, 0
         train_loss_list = []
         sub_train_loss_list = []
-        for (idx, img1, augimg, label, _) in tqdm(train_loader, desc='Train...'):
+        for (idx, img1, augimg, gray_img, label, _) in tqdm(train_loader, desc='Train...'):
             
-            img1, augimg, label = img1.to(device), augimg.to(device), label.to(device)
+            img1, augimg, gray_img, label = img1.to(device), augimg.to(device), gray_img.to(device), label.to(device)
 
             model_optimizer.zero_grad()
             score_optimizer.zero_grad()
@@ -205,8 +188,10 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
 
             invariant_feature = model(img1)
             aug_invariant_feature = model(augimg)
+            gray_feature = model(gray_img)
 
-            L_CL = contrastive_loss(invariant_feature[normal_idx], aug_invariant_feature[normal_idx])
+            L_CL1 = contrastive_loss(invariant_feature[normal_idx], aug_invariant_feature[normal_idx])
+            L_CL2 = contrastive_loss(invariant_feature[normal_idx], gray_feature[normal_idx])
             
             scores = score_net(invariant_feature)
             L_normal_score = 0
@@ -215,10 +200,10 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
             L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).sum()
 
             if args.lambda1 != 0:
-                loss = L_CL + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
+                loss = L_CL1 + L_CL2 + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
             else:
                 L_classfier = torch.nn.BCELoss()(torch.sigmoid(scores.reshape(-1)), label.to(torch.float32))
-                loss = L_CL + L_classfier
+                loss = L_CL1 + L_CL2 + L_classfier
 
             loss.backward()
 
@@ -229,9 +214,9 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
             total_loss += loss.item()
             train_loss_list.append(loss.item())
             if args.lambda1 != 0:
-                sub_train_loss_list.append([L_CL.item(), L_normal_score.item(), L_anomaly_score.item()])
+                sub_train_loss_list.append([L_CL1.item(), L_CL2.item(), L_normal_score.item(), L_anomaly_score.item()])
             else:
-                sub_train_loss_list.append([L_CL.item(), L_classfier.item()])
+                sub_train_loss_list.append([L_CL1.item(), L_CL2.item(), L_classfier.item()])
 
         if args.use_scheduler == 1:
             model_scheduler.step()
@@ -280,56 +265,6 @@ def train_model(score_net, train_loader, unlabeled_loader, val_loader, test_load
              test_results_list = np.array(test_results_list),
              test_metric = np.array(test_metric),
              args = np.array(args.__dict__),)
-
-# 兼容geomloss提供的'euclidean'
-# 注意：geomloss要求cost func计算两个batch的距离，也即接受(B, N, D)
-def cost_func(a, b, p=2, metric='cosine'):
-    """ a, b in shape: (B, N, D) or (N, D)
-    """ 
-    assert type(a)==torch.Tensor and type(b)==torch.Tensor, 'inputs should be torch.Tensor'
-    if metric=='euclidean' and p==1:
-        return geomloss.utils.distances(a, b)
-    elif metric=='euclidean' and p==2:
-        return geomloss.utils.squared_distances(a, b)
-    else:
-        if a.dim() == 3:
-            x_norm = a / a.norm(dim=2)[:, :, None]
-            y_norm = b / b.norm(dim=2)[:, :, None]
-            M = 1 - torch.bmm(x_norm, y_norm.transpose(-1, -2))
-        elif a.dim() == 2:
-            x_norm = a / a.norm(dim=1)[:, None]
-            y_norm = b / b.norm(dim=1)[:, None]
-            M = 1 - torch.mm(x_norm, y_norm.transpose(0, 1))
-        M = pow(M, p)
-        return M
-
-def calc_ot(x, y, p = 2, metric = 'cosine'):
-    entreg = .1
-    OTLoss = geomloss.SamplesLoss(
-        loss='sinkhorn', p=p,
-        cost=lambda a, b: cost_func(a, b, p=p, metric=metric),
-        blur=entreg**(1/p), backend='tensorized')
-    pW = OTLoss(x, y)
-
-    return pW
-
-def calc_L_ot(x, labels):
-    envs = labels.unique(sorted=True)
-    cost = []
-    for i in envs:
-        for j in envs:
-            if i >= j:
-                continue
-            domain_i = torch.where(torch.eq(labels, i))[0]
-            domain_j = torch.where(torch.eq(labels, j))[0]
-            if len(domain_i) < 1 or len(domain_j) < 1:
-                continue
-            
-            single_res = calc_ot(x[domain_i], x[domain_j])
-            cost.append(single_res.reshape(1, -1))
-
-    cost = torch.cat(cost)
-    return torch.sum(cost)
 
 def build_dataloader(args, **kwargs):
 
@@ -399,7 +334,7 @@ if __name__ == "__main__":
     parser.add_argument("--lambda0", type=int, default=1)
     parser.add_argument("--lambda1", type=int, default=1)
     parser.add_argument("--no_center", type=int, default=1)
-    parser.add_argument("--freeze_m", type=int, default=0)
+    parser.add_argument("--freeze_m", type=int, default=1)
     parser.add_argument("--freeze", type=int, default=0)
     parser.add_argument("--quantile", type=float, default=1.0)
     parser.add_argument("--temperature", type=float, default=0.25)
@@ -408,10 +343,10 @@ if __name__ == "__main__":
     parser.add_argument("--gpu", type=str, default="3")
     parser.add_argument("--save_embedding", type=int, default=0)
     parser.add_argument("--warmup", type=float, default=0.25)
-    parser.add_argument("--use_scheduler", type=int, default=1)
+    parser.add_argument("--use_scheduler", type=int, default=0)
     parser.add_argument("--conv_layer", type=int, default=4)
     parser.add_argument("--test_type", type=str, default="sample_align")
-    parser.add_argument("--gray", type=int, default=0)
+    parser.add_argument("--gray", type=int, default=1)
     
     # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()

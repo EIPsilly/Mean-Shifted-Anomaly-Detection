@@ -16,6 +16,8 @@ with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', enco
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 class_to_idx = config["PACS_class_to_idx"]
 domain_to_idx = config["PACS_domain_to_idx"]
+mean = (0.485, 0.456, 0.406)
+std = (0.229, 0.224, 0.225)
 
 def int_parameter(level, maxval):
     """Helper function to scale `val` between 0 and maxval .
@@ -152,6 +154,14 @@ class PACS_Dataset_with_domain_label(Dataset):
         self.domain_idx = []
         for i in range(args.domain_cnt):
             self.domain_idx.append(np.where(self.domain_labels == i)[0])
+        self.args = args
+        self.gray_transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=mean,
+                                    std=std),
+                transforms.Grayscale(3)
+            ])
+
     def __len__(self):
         return len(self.image_paths)
 
@@ -170,8 +180,12 @@ class PACS_Dataset_with_domain_label(Dataset):
 
         if self.target_transform is not None:
             label = self.target_transform(label)
-
-        return idx, img, augimg, label, self.domain_labels[idx]
+        
+        if ("gray" in self.args) and (self.args.gray == 1):
+            gray_img = self.gray_transform(self.img_list[idx])
+            return idx, img, augimg, gray_img, label, self.domain_labels[idx]
+        else:
+            return idx, img, augimg, label, self.domain_labels[idx]
     
 class PACS_Data():
 
