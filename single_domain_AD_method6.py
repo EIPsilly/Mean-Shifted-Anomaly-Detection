@@ -212,7 +212,7 @@ def train_model(score_net, device, args):
             L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).mean()
 
             if args.lambda1 != 0:
-                loss = args.lambda0 * (L_CL1 + L_CL2) + min(epoch / warmup_epoch, 1) * args.lambda1 * (L_normal_score + L_anomaly_score)
+                loss = args.lambda0 * (L_CL1 + L_CL2) + min(epoch / warmup_epoch, 1) * (L_normal_score + args.lambda1 * L_anomaly_score)
             else:
                 L_classfier = torch.nn.BCELoss()(torch.sigmoid(scores.reshape(-1)), label.to(torch.float32))
                 loss = args.lambda0 * (L_CL1 + L_CL2) + L_classfier
@@ -409,6 +409,7 @@ if __name__ == "__main__":
     parser.add_argument("--test_type", type=str, default="sample_align")
     parser.add_argument("--gray", type=int, default=1)
     parser.add_argument("--BalancedBatchSampler", type=int, default=1)
+    parser.add_argument("--alpha", type=float, default=0.5)
     
     # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()
@@ -424,7 +425,7 @@ if __name__ == "__main__":
         os.makedirs(f"results{args.results_save_path}")
 
     if args.dataset == "PACS":
-        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},backbone={args.backbone},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},alpha={args.alpha},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},cnt={args.cnt}'
     if args.dataset == "MVTEC":
         filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
     main(args)

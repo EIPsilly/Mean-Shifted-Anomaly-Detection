@@ -114,7 +114,6 @@ def EFDM_test(input_image, normal_image, lamda = 0.5):
 
 def sample_align(input, target, lamda = 0.5):
 
-    lamda = 1-lamda
     B, C, W, H = input.size(0), input.size(1), input.size(2), input.size(3)
     B2 = target.shape[0]
 
@@ -131,6 +130,7 @@ class Align_Test_Model(torch.nn.Module):
     def __init__(self, args, **kwargs):
         super().__init__()
         self.args = args
+        self.alpha = self.args.alpha if "alpha" in self.args else 0.5
         backbone = args.backbone
         if (backbone == "resnet152") or (backbone == 152):
             self.backbone = models.resnet152(pretrained=True)
@@ -177,11 +177,11 @@ class Align_Test_Model(torch.nn.Module):
         x1 = self.backbone.layer1(x)
         
         if self.args.test_type == "sample_align":
-            x1 = sample_align(x1, feature1_list)
+            x1 = sample_align(x1, feature1_list, self.alpha)
 
         x2 = self.backbone.layer2(x1)
         if self.args.test_type == "sample_align":
-            x2 = sample_align(x2, feature2_list)
+            x2 = sample_align(x2, feature2_list, self.alpha)
 
         x3 = self.backbone.layer3(x2)
         x4 = self.backbone.layer4(x3)
