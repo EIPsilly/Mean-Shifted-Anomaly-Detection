@@ -212,10 +212,10 @@ def train_model(score_net, device, args):
             L_anomaly_score = (border + args.confidence_margin - scores[anomaly_idx]).clamp_(min=0.).mean()
 
             if args.lambda1 != 0:
-                loss = args.lambda0 * (L_CL1 + L_CL2) + min(epoch / warmup_epoch, 1) * (L_normal_score + args.lambda1 * L_anomaly_score)
+                loss = L_CL1 + args.lambda0 * L_CL2 + min(epoch / warmup_epoch, 1) * (L_normal_score + args.lambda1 * L_anomaly_score)
             else:
                 L_classfier = torch.nn.BCELoss()(torch.sigmoid(scores.reshape(-1)), label.to(torch.float32))
-                loss = args.lambda0 * (L_CL1 + L_CL2) + L_classfier
+                loss = L_CL1 + args.lambda0 * L_CL2 + L_classfier
 
             loss.backward()
 
@@ -277,6 +277,8 @@ def train_model(score_net, device, args):
              test_results_list = np.array(test_results_list),
              test_metric = np.array(test_metric),
              args = np.array(args.__dict__),)
+    
+    os.remove(os.path.join(args.experiment_dir, filename + ".pt"))
 
 def worker_init_fn_seed(worker_id):
     seed = 10
@@ -368,11 +370,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='PACS')
+    parser.add_argument('--dataset', default='MVTEC')
     parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
-    parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6])
+    parser.add_argument("--normal_class", nargs="+", type=int, default=[4])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[0,1,2,3,5,6])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--ft_epochs', default=2, type=int, help='number of fine tune epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
@@ -395,7 +397,7 @@ if __name__ == "__main__":
     parser.add_argument("--lambda0", type=int, default=1)
     parser.add_argument("--lambda1", type=int, default=1)
     parser.add_argument("--no_center", type=int, default=1)
-    parser.add_argument("--freeze_m", type=int, default=0)
+    parser.add_argument("--freeze_m", type=int, default=1)
     parser.add_argument("--freeze", type=int, default=0)
     parser.add_argument("--quantile", type=float, default=1.0)
     parser.add_argument("--temperature", type=float, default=0.25)
@@ -427,5 +429,5 @@ if __name__ == "__main__":
     if args.dataset == "PACS":
         filename = f'dataset={args.dataset},normal_class={args.normal_class},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},alpha={args.alpha},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},cnt={args.cnt}'
     if args.dataset == "MVTEC":
-        filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},checkitew={args.checkitew},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},alpha={args.alpha},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},cnt={args.cnt}'
     main(args)

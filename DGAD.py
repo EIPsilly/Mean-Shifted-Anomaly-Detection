@@ -216,7 +216,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='PACS')
+    parser.add_argument('--dataset', default='MVTEC')
     parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
     parser.add_argument("--normal_class", nargs="+", type=int, default=[0])

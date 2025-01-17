@@ -15,6 +15,8 @@ with open("../domain-generalization-for-anomaly-detection/config.yml", 'r', enco
     import yaml
     config = yaml.load(f.read(), Loader=yaml.FullLoader)
 domain_to_idx = config["MVTEC_domain_to_idx"]
+mean = (0.485, 0.456, 0.406)
+std = (0.229, 0.224, 0.225)
 
 def int_parameter(level, maxval):
     """Helper function to scale `val` between 0 and maxval .
@@ -114,7 +116,7 @@ def augmvtec(image, preprocess, severity=3, width=3, depth=-1, alpha=1.):
 
 
 class MVTEC_Dataset(Dataset):
-    def __init__(self, x, y, transform=None, target_transform=None, augment_transform = None):
+    def __init__(self, args, x, y, transform=None, target_transform=None, augment_transform = None):
         self.image_paths = x
         self.labels = y
         self.transform = transform
@@ -122,16 +124,35 @@ class MVTEC_Dataset(Dataset):
         self.augment_transform = augment_transform
         
         self.img_list = []
+
+        if "input_img_size" in args:
+            image_size = args.input_img_size
+        else:
+            image_size = 256
         resize_transform = transforms.Compose([
-            transforms.Resize((256, 256)),
+            transforms.Resize((image_size, image_size)),
             ])
-        for img_path in self.image_paths:
+        self.domain_labels = np.empty_like(self.labels)
+
+        for idx, img_path in enumerate(self.image_paths):
+            self.domain_labels[idx] = domain_to_idx[img_path.split("/")[1].replace("mvtec_", "")]
             img = Image.open(config["mvtec_ood_root"] + img_path).convert('RGB')
             img = resize_transform(img)
             self.img_list.append(img)
         
         self.normal_idx = np.where(self.labels==0)[0]
         self.outlier_idx = np.where(self.labels==1)[0]
+
+        self.domain_idx = []
+        for i in range(args.domain_cnt):
+            self.domain_idx.append(np.where(self.domain_labels == i)[0])
+        self.args = args
+        self.gray_transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=mean,
+                                    std=std),
+                transforms.Grayscale(3)
+            ])
 
     def __len__(self):
         return len(self.image_paths)
@@ -152,22 +173,27 @@ class MVTEC_Dataset(Dataset):
         if self.target_transform is not None:
             label = self.target_transform(label)
 
-        return idx, img, augimg, label
+        if ("gray" in self.args) and (self.args.gray == 1):
+            gray_img = self.gray_transform(self.img_list[idx])
+            return idx, img, augimg, gray_img, label, self.domain_labels[idx]
+        else:
+            return idx, img, augimg, label, self.domain_labels[idx]
     
 class MVTEC_Data():
 
     def __init__(self, args):
+        if not "supervised" in args:
+            args.supervised = "un"
             
-        if args.domain_cnt == 1:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/1domain/20240412-MVTEC-{args.checkitew}.npz'
-        elif args.domain_cnt == 4:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/unsupervised/4domain/20240412-MVTEC-{args.checkitew}.npz'
-        
+        train_path = f'../domain-generalization-for-anomaly-detection/data/mvtec/{args.supervised}supervised/{args.domain_cnt}domain/20240412-MVTEC-{args.checkitew}.npz'
         data = np.load(train_path, allow_pickle=True)
 
         mean = (0.485, 0.456, 0.406)
         std = (0.229, 0.224, 0.225)
-        image_size = 256
+        if "input_img_size" in args:
+            image_size = args.input_img_size
+        else:
+            image_size = 256
 
         train_transform = transforms.Compose([
                 transforms.ToTensor(),
@@ -184,10 +210,10 @@ class MVTEC_Data():
                         std=torch.tensor(std))
         ])
         
-        self.train_data = MVTEC_Dataset(data["train_set_path"], data["train_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
+        self.train_data = MVTEC_Dataset(args, data["train_set_path"], data["train_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
         unlabeled_idx = np.where(data["train_labels"] == 0)[0]
-        self.unlabeled_data = MVTEC_Dataset(data["train_set_path"][unlabeled_idx], data["train_labels"][unlabeled_idx], transform=train_transform, target_transform=None, augment_transform = augment_transform)
-        self.val_data = MVTEC_Dataset(data["val_set_path"], data["val_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
+        self.unlabeled_data = MVTEC_Dataset(args, data["train_set_path"][unlabeled_idx], data["train_labels"][unlabeled_idx], transform=train_transform, target_transform=None, augment_transform = augment_transform)
+        self.val_data = MVTEC_Dataset(args, data["val_set_path"], data["val_labels"], transform=train_transform, target_transform=None, augment_transform = augment_transform)
 
         logging.info("y_train\t" + str(dict(sorted(Counter(data["train_labels"]).items()))))
         logging.info("y_val\t" + str(dict(sorted(Counter(data["val_labels"]).items()))))
@@ -195,7 +221,7 @@ class MVTEC_Data():
         print("y_val\t" + str(dict(sorted(Counter(data["val_labels"]).items()))))
         self.test_dict = {}
         for domain in ["origin", "brightness", "contrast", "defocus_blur", "gaussian_noise"]:
-            self.test_dict[domain] = MVTEC_Dataset(data[f"test_{domain}"], data[f"test_{domain}_labels"], transform=test_transform, target_transform=None, augment_transform = augment_transform)
+            self.test_dict[domain] = MVTEC_Dataset(args, data[f"test_{domain}"], data[f"test_{domain}_labels"], transform=test_transform, target_transform=None, augment_transform = augment_transform)
             logging.info(domain + "\ty_test\t" + str(dict(sorted(Counter(data[f"test_{domain}_labels"]).items()))))
             print(domain + "\ty_test\t" + str(dict(sorted(Counter(data[f"test_{domain}_labels"]).items()))))
             
