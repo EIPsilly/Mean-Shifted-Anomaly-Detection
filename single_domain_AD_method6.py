@@ -162,7 +162,7 @@ def train_model(score_net, device, args):
         with torch.no_grad():
             score_net.eval()
             model.eval()
-            for (_, img1, _, _, label, _) in tqdm(train_loader, desc='init...'):
+            for (_, img1, _, _, label, _) in tqdm(no_drop_loader, desc='init...'):
                 img1, label = img1.to(device), label.to(device)
 
                 img1 = img1[torch.where(label == 0)[0]]
@@ -334,6 +334,7 @@ def build_dataloader(args, **kwargs):
         data = MVTEC_Data(args)
 
     train_set = data.train_data
+    no_drop_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers = args.workers, drop_last=False)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers = args.workers, drop_last=True)
     val_data = data.val_data
     val_loader = DataLoader(val_data, batch_size=args.batch_size, shuffle=False, **kwargs)
@@ -346,7 +347,7 @@ def build_dataloader(args, **kwargs):
 
     balance_loader = DataLoader(train_set, worker_init_fn=worker_init_fn_seed, batch_sampler=BalancedBatchSampler(args, train_set), **kwargs)
     
-    return train_loader, val_loader, test_loader, unlabeled_loader, balance_loader
+    return train_loader, val_loader, test_loader, unlabeled_loader, balance_loader, no_drop_loader
 
 def main(args):
     print('Dataset: {}, Normal Label: {}, LR: {}'.format(args.dataset, args.label, args.lr))
@@ -359,8 +360,8 @@ def main(args):
     # train_loader, test_loader, train_loader_1 = utils.get_loaders(dataset=args.dataset, label_class=args.label, batch_size=args.batch_size, backbone=args.backbone)
     kwargs = {'num_workers': args.workers}
     # _, val_loader, test_loader, train_loader = build_dataloader(args, **kwargs)
-    global train_loader, val_loader, test_loader, unlabeled_loader, balance_loader
-    train_loader, val_loader, test_loader, unlabeled_loader, balance_loader = build_dataloader(args, **kwargs)
+    global train_loader, val_loader, test_loader, unlabeled_loader, balance_loader, no_drop_loader
+    train_loader, val_loader, test_loader, unlabeled_loader, balance_loader, no_drop_loader = build_dataloader(args, **kwargs)
     
     print("\n===================\ntrain_model\n===================\n")
     score_net = net_work2.ScoreNet(args)
