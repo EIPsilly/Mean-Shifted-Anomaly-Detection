@@ -204,7 +204,7 @@ class PACS_Data():
         if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
             pass
         else:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/unsupervised/{args.domain_cnt}domain/20240412-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
+            train_path = f'../domain-generalization-for-anomaly-detection/data/contamination/pacs/{args.supervised}supervised/{args.domain_cnt}domain/20241124-PACS-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
 
         data = np.load(train_path, allow_pickle=True)
 

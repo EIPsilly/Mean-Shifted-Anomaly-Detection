@@ -15,8 +15,6 @@ import numpy as np
 from datasets.PACS import PACS_Data
 from datasets.MVTEC import MVTEC_Data
 from sklearn.cluster import SpectralClustering, AgglomerativeClustering
-import ot
-import geomloss
 import torch.optim.lr_scheduler as lr_scheduler
 
 def contrastive_loss(out_1, out_2):
@@ -371,11 +369,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='MVTEC')
-    parser.add_argument("--contamination_rate", type=float ,default=0)
+    parser.add_argument('--dataset', default='PACS')
+    parser.add_argument("--contamination_rate", type=float ,default=0.04)
     parser.add_argument("--checkitew", type=str, default="bottle")
-    parser.add_argument("--normal_class", nargs="+", type=int, default=[4])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[0,1,2,3,5,6])
+    parser.add_argument("--normal_class", nargs="+", type=int, default=[6])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[0,1,2,3,4,5])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--ft_epochs', default=2, type=int, help='number of fine tune epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
