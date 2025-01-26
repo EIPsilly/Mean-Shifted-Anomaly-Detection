@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 from datasets.PACS import PACS_Data
 from datasets.MVTEC import MVTEC_Data
+from datasets.MNIST import MNIST_Data
 
 def contrastive_loss(out_1, out_2):
     out_1 = F.normalize(out_1, dim=-1)
@@ -65,7 +66,7 @@ def train_model(model, train_loader, val_loader, test_loader, device, args):
         val_AUROC_list.append(roc)
         val_AUPRC_list.append(prc)
         test_metric = None
-        if (epoch == 0) or (epoch % args.test_epoch == 0):
+        if (args.test_epoch != 0) and ((epoch == 0) or (epoch % args.test_epoch == 0)):
             test_metric = test(model, train_loader, test_loader)
         
         test_results_list.append(test_metric)
@@ -85,6 +86,7 @@ def train_model(model, train_loader, val_loader, test_loader, device, args):
              test_results_list = np.array(test_results_list),
              test_metric = np.array(test_metric),
              args = np.array(args.__dict__),)
+    os.remove(os.path.join(args.experiment_dir, filename + ".pt"))
 
 def test(model, train_loader, test_loader):
     train_feature_space = []
@@ -186,7 +188,10 @@ def build_dataloader(args, **kwargs):
         
     if args.dataset == "MVTEC":
         data = MVTEC_Data(args)
-
+    
+    if args.dataset == "MNIST":
+        data = MNIST_Data(args)
+    
     train_set = data.train_data
     train_loader = DataLoader(train_set, batch_size=args.batch_size, **kwargs)
     val_data = data.val_data
@@ -216,27 +221,30 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='MVTEC')
+    parser.add_argument('--dataset', default='MNIST')
     parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
     parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6,7,8,9])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
     parser.add_argument('--lr', type=float, default=1e-5, help='The initial learning rate.')
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--backbone', default='wide_resnet50_2', type=str, help='ResNet 18/152')
     parser.add_argument('--angular', action='store_true', help='Train with angular center loss')
-    parser.add_argument('--workers', type=int, default=32, metavar='N', help='dataloader threads')
+    parser.add_argument('--workers', type=int, default=4, metavar='N', help='dataloader threads')
     parser.add_argument('--experiment_dir', type=str, default='/experiment', help="experiment dir root")
     parser.add_argument("--results_save_path", type=str, default="/DEBUG")
     parser.add_argument("--test_epoch", type=int, default=5)
-    parser.add_argument("--domain_cnt", type=int, default=1)
+    parser.add_argument("--domain_cnt", type=int, default=3)
+    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["SVHN", "MNIST_M", "MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
+    parser.add_argument("--label_discount", type=float, default=1.0)
     parser.add_argument("--cnt", type=int, default=0)
     
     args = parser.parse_args()
     # args = parser.parse_args(["--dataset", "MVTEC", "--domain_cnt", "4"])
 
+    args.label_discount = int(8 * 27 / args.label_discount)
     args.experiment_dir = f"experiment{args.results_save_path}"
 
     if not os.path.exists(args.experiment_dir):
@@ -248,5 +256,7 @@ if __name__ == "__main__":
     if args.dataset == "PACS":
         filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},contamination_rate={args.contamination_rate},cnt={args.cnt}'
     if args.dataset == "MVTEC":
-        filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},cnt={args.cnt}'
+        filename = f'dataset={args.dataset},checkitew={args.checkitew},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},domain_cnt={args.domain_cnt},cnt={args.cnt}'
+    if args.dataset == "MNIST":
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},anomaly_class={args.anomaly_class},epochs={args.epochs},lr={args.lr},batch_size={args.batch_size},backbone={args.backbone},label_discount={args.label_discount},cnt={args.cnt}'
     main(args)
