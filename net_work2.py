@@ -119,7 +119,8 @@ def sample_align(input, target, lamda = 0.5):
 
     random_index = torch.randint(0, target.shape[0], (B, C, H, W))
     sampled_values = target[random_index, torch.arange(C)[None, :, None, None], torch.arange(H)[None, None, :, None], torch.arange(W)[None, None, None, :]]
-
+    if sampled_values.is_cuda == False:
+        sampled_values = sampled_values.cuda()
     new_input_x = input + (sampled_values - input) * lamda
     # new_input_x = new_input_x.cpu().detach().numpy()
     # new_input_x = torch.from_numpy(new_input_x)

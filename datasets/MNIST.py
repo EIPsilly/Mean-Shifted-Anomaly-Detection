@@ -24,6 +24,7 @@ class MNIST_Dataset_with_domain_label(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.augment_transform = augment_transform
+        self.args = args
         
         self.img_list = []
 
@@ -72,8 +73,11 @@ class MNIST_Dataset_with_domain_label(Dataset):
 
         if self.target_transform is not None:
             label = self.target_transform(label)
-
-        return idx, img, augimg, label, self.domain_labels[idx]
+        
+        if ("gray" in self.args) and (self.args.gray == 1):
+            return idx, img, augimg, img, label, self.domain_labels[idx]
+        else:
+            return idx, img, augimg, label, self.domain_labels[idx]
     
 class MNIST_Data():
 
@@ -81,19 +85,21 @@ class MNIST_Data():
             
         normal_class = "".join(list(map(str,args.normal_class)))
         anomaly_class = "".join(list(map(str,args.anomaly_class)))
+        if not "supervised" in args:
+            args.supervised = "un"
         list.sort(args.in_domain_type)
-        train_path = f'../domain-generalization-for-anomaly-detection/data/MNIST/unsupervised/{args.domain_cnt}domain/20250120-MNIST-{",".join(args.in_domain_type)}-{normal_class}-{anomaly_class}.npz'
+        train_path = f'../domain-generalization-for-anomaly-detection/data/MNIST/{args.supervised}supervised/{args.domain_cnt}domain/20250120-MNIST-{",".join(args.in_domain_type)}-{normal_class}-{anomaly_class}.npz'
         
         if ("contamination_rate" in args == False) or (args.contamination_rate == 0):
             pass
         else:
             if args.domain_cnt == 3:
-                train_path = f'../domain-generalization-for-anomaly-detection/data/contamination/MNIST/unsupervised/3domain/20240412-MNIST-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
+                train_path = f'../domain-generalization-for-anomaly-detection/data/contamination/MNIST/{args.supervised}supervised/3domain/20240412-MNIST-{normal_class}-{anomaly_class}-{args.contamination_rate}.npz'
         
         if ("label_discount" in args == False) or (args.label_discount == 0):
             pass
         else:
-            train_path = f'../domain-generalization-for-anomaly-detection/data/MNIST/unsupervised/{args.domain_cnt}domain/20250120-MNIST-{",".join(args.in_domain_type)}-{"".join(map(str, args.normal_class))}-{"".join(map(str, args.anomaly_class))}-{args.label_discount}.npz'
+            train_path = f'../domain-generalization-for-anomaly-detection/data/MNIST/{args.supervised}supervised/{args.domain_cnt}domain/20250120-MNIST-{",".join(args.in_domain_type)}-{"".join(map(str, args.normal_class))}-{"".join(map(str, args.anomaly_class))}-{args.label_discount}.npz'
 
         data = np.load(train_path, allow_pickle=True)
 

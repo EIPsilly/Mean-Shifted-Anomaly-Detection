@@ -222,7 +222,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--dataset', default='MNIST')
-    parser.add_argument("--contamination_rate", type=float ,default=0)
+    parser.add_argument("--contamination_rate", type=float ,default=0.04)
     parser.add_argument("--checkitew", type=str, default="bottle")
     parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
     parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6,7,8,9])
@@ -236,8 +236,8 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_dir', type=str, default='/experiment', help="experiment dir root")
     parser.add_argument("--results_save_path", type=str, default="/DEBUG")
     parser.add_argument("--test_epoch", type=int, default=5)
-    parser.add_argument("--domain_cnt", type=int, default=3)
-    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["SVHN", "MNIST_M", "MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
+    parser.add_argument("--domain_cnt", type=int, default=1)
+    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
     parser.add_argument("--label_discount", type=float, default=1.0)
     parser.add_argument("--cnt", type=int, default=0)
     

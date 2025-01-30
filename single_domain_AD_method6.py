@@ -1,3 +1,4 @@
+import gc
 import os
 from torch.utils.data import Sampler
 from datasets.base_dataset import BaseADDataset
@@ -14,6 +15,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 from datasets.PACS import PACS_Data
 from datasets.MVTEC import MVTEC_Data
+from datasets.MNIST import MNIST_Data
 from sklearn.cluster import SpectralClustering, AgglomerativeClustering
 import torch.optim.lr_scheduler as lr_scheduler
 
@@ -57,9 +59,13 @@ def calc_score(score_net, cluster_centers, dataloader, domain_key):
         image = image[torch.where(target == 0)[0]].cuda()
         with torch.no_grad():
             feature1, feature2 = model.normal_feature_sample(image)
-            
-        feature1_list.append(feature1)
-        feature2_list.append(feature2)
+                
+        if args.dataset == "MNIST":
+            feature1_list.append(feature1.detach().cpu())
+            feature2_list.append(feature2.detach().cpu())
+        else:
+            feature1_list.append(feature1.detach())
+            feature2_list.append(feature2.detach())
     
     feature1_list = torch.concat(feature1_list)
     feature2_list = torch.concat(feature2_list)
@@ -109,7 +115,10 @@ def calc_score(score_net, cluster_centers, dataloader, domain_key):
                     AUPRC=np.array(pr),
                     file_name_list=file_name_list
                     )
-
+    if args.dataset == "MNIST":
+        del feature1_list
+        del feature2_list
+        gc.collect()
     return loss_list, roc, pr, total_pred, total_target, file_name_list
 
 def test_after_fine_tune(score_net, cluster_centers, test_loader):
@@ -168,14 +177,18 @@ def train_model(score_net, device, args):
                 invariant_feature = model(img1)
                 feature1, feature2 = model.normal_feature_sample(img1)
                 
-                feature1_list.append(feature1)
-                feature2_list.append(feature2)
+                if args.dataset == "MNIST":
+                    feature1_list.append(feature1.detach().cpu())
+                    feature2_list.append(feature2.detach().cpu())
+                else:
+                    feature1_list.append(feature1.detach())
+                    feature2_list.append(feature2.detach())
 
                 scores = score_net(invariant_feature)
                 normal_score_list.append(scores)
             
-            feature1_list = torch.concat(feature1_list).detach()
-            feature2_list = torch.concat(feature2_list).detach()
+            feature1_list = torch.concat(feature1_list)
+            feature2_list = torch.concat(feature2_list)
             normal_score_list = torch.concat(normal_score_list)
             border = torch.quantile(normal_score_list, args.quantile)
 
@@ -185,9 +198,9 @@ def train_model(score_net, device, args):
         train_loss_list = []
         sub_train_loss_list = []
         training_data_loader = balance_loader if args.BalancedBatchSampler == 1 else train_loader
-        for (idx, img1, augimg, gray_img, label, _) in tqdm(training_data_loader, desc='Train...'):
+        for (idx, img1, augimg, _, label, _) in tqdm(training_data_loader, desc='Train...'):
             
-            img1, augimg, gray_img, label = img1.to(device), augimg.to(device), gray_img.to(device), label.to(device)
+            img1, augimg, label = img1.to(device), augimg.to(device), label.to(device)
 
             model_optimizer.zero_grad()
             score_optimizer.zero_grad()
@@ -197,7 +210,7 @@ def train_model(score_net, device, args):
 
             invariant_feature = model(img1)
             aug_invariant_feature = model(augimg)
-            # gray_feature = model(gray_img)
+            # gray_feature = model(_)
             align_feature = model.inference(img1, feature1_list, feature2_list)
 
             L_CL1 = contrastive_loss(invariant_feature, aug_invariant_feature)
@@ -238,7 +251,10 @@ def train_model(score_net, device, args):
         train_results_loss.append(running_loss)
         print('Epoch: {}, Loss: {}'.format(epoch + 1, running_loss))
         sub_train_results_loss.append(sub_train_loss_list)
-
+        if args.dataset == "MNIST":
+            del feature1_list
+            del feature2_list
+            gc.collect()
 
         _, roc, prc, _, _, _ = calc_score(score_net, cluster_centers, val_loader, "val")
         print('Epoch: {}, val_AUROC is: {}, val_AUPRC is :{}'.format(epoch + 1, roc, prc))
@@ -330,6 +346,9 @@ def build_dataloader(args, **kwargs):
         
     if args.dataset == "MVTEC":
         data = MVTEC_Data(args)
+    
+    if args.dataset == "MNIST":
+        data = MNIST_Data(args)
 
     train_set = data.train_data
     no_drop_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers = args.workers, drop_last=False)
@@ -369,11 +388,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='PACS')
-    parser.add_argument("--contamination_rate", type=float ,default=0.04)
+    parser.add_argument('--dataset', default='MNIST')
+    parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
-    parser.add_argument("--normal_class", nargs="+", type=int, default=[6])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[0,1,2,3,4,5])
+    parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6,7,8,9])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--ft_epochs', default=2, type=int, help='number of fine tune epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
@@ -381,7 +400,7 @@ if __name__ == "__main__":
     parser.add_argument('--ft_lr', type=float, default=1e-5, help='The fine tune learning rate.')
     parser.add_argument('--score_lr', type=float, default=1e-3, help='The fine tune learning rate.')
     parser.add_argument('--confidence_margin', type=float, default=3, help='confidence_margin.')
-    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--backbone', default='wide_resnet50_2', type=str, help='ResNet 18/152')
     parser.add_argument('--angular', action='store_true', help='Train with angular center loss')
     parser.add_argument('--workers', type=int, default=8, metavar='N', help='dataloader threads')
@@ -411,12 +430,15 @@ if __name__ == "__main__":
     parser.add_argument("--gray", type=int, default=1)
     parser.add_argument("--BalancedBatchSampler", type=int, default=1)
     parser.add_argument("--alpha", type=float, default=0.5)
+    parser.add_argument("--label_discount", type=float, default=2.0)
+    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
     
     # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()
 
     torch.manual_seed(args.random_seed)
     args.experiment_dir = f"experiment{args.results_save_path}"
+    args.label_discount = int(8 * 27 / args.label_discount)
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     if not os.path.exists(args.experiment_dir):
@@ -429,4 +451,6 @@ if __name__ == "__main__":
         filename = f'dataset={args.dataset},normal_class={args.normal_class},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},contamination_rate={args.contamination_rate},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},alpha={args.alpha},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},cnt={args.cnt}'
     if args.dataset == "MVTEC":
         filename = f'dataset={args.dataset},checkitew={args.checkitew},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},alpha={args.alpha},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},cnt={args.cnt}'
+    if args.dataset == "MNIST":
+        filename = f'dataset={args.dataset},normal_class={args.normal_class},batch_size={args.batch_size},ft_lr={args.ft_lr},ft_epochs={args.ft_epochs},score_lr={args.score_lr},lambda0={args.lambda0},lambda1={args.lambda1},freeze_m={args.freeze_m},warmup={args.warmup},alpha={args.alpha},use_scheduler={args.use_scheduler},BalancedBatchSampler={args.BalancedBatchSampler},label_discount={args.label_discount},cnt={args.cnt}'
     main(args)
