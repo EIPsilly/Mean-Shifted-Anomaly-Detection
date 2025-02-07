@@ -1,3 +1,4 @@
+import time
 import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import torch
@@ -128,6 +129,7 @@ def test(model, train_loader, test_loader):
 
 def run_epoch(model, train_loader, optimizer, center, device, is_angular):
     total_loss, total_num = 0.0, 0
+    train_start = time.time()
     for (idx, img1, img2, label, _) in tqdm(train_loader, desc='Train...'):
         
         img1, img2 = img1.to(device), img2.to(device)
@@ -150,7 +152,9 @@ def run_epoch(model, train_loader, optimizer, center, device, is_angular):
 
         total_num += img1.size(0)
         total_loss += loss.item() * img1.size(0)
-
+    
+    train_end = time.time()
+    print("training_time", train_end - train_start)
     return total_loss / (total_num)
 
 
@@ -221,11 +225,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='MNIST')
-    parser.add_argument("--contamination_rate", type=float ,default=0.04)
+    parser.add_argument('--dataset', default='MVTEC')
+    parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
     parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6,7,8,9])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
     parser.add_argument('--lr', type=float, default=1e-5, help='The initial learning rate.')
@@ -236,8 +240,8 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_dir', type=str, default='/experiment', help="experiment dir root")
     parser.add_argument("--results_save_path", type=str, default="/DEBUG")
     parser.add_argument("--test_epoch", type=int, default=5)
-    parser.add_argument("--domain_cnt", type=int, default=1)
-    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
+    parser.add_argument("--domain_cnt", type=int, default=4)
+    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["MNIST", "MNIST_M", "SVHN"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
     parser.add_argument("--label_discount", type=float, default=1.0)
     parser.add_argument("--cnt", type=int, default=0)
     

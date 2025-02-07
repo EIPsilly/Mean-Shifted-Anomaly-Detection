@@ -1,4 +1,5 @@
 import gc
+import time
 import os
 from torch.utils.data import Sampler
 from datasets.base_dataset import BaseADDataset
@@ -198,6 +199,7 @@ def train_model(score_net, device, args):
         train_loss_list = []
         sub_train_loss_list = []
         training_data_loader = balance_loader if args.BalancedBatchSampler == 1 else train_loader
+        train_start = time.time()
         for (idx, img1, augimg, _, label, _) in tqdm(training_data_loader, desc='Train...'):
             
             img1, augimg, label = img1.to(device), augimg.to(device), label.to(device)
@@ -246,7 +248,9 @@ def train_model(score_net, device, args):
             print("model_optimizer_lr", model_optimizer.state_dict()['param_groups'][0]['lr'])
             score_scheduler.step()
             print("score_optimizer_lr", score_optimizer.state_dict()['param_groups'][0]['lr'])
+        train_end = time.time()
 
+        print("training_time", train_end - train_start)
         running_loss = total_loss / (total_num)
         train_results_loss.append(running_loss)
         print('Epoch: {}, Loss: {}'.format(epoch + 1, running_loss))
@@ -388,11 +392,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='MNIST')
+    parser.add_argument('--dataset', default='MVTEC')
     parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
     parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6,7,8,9])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--ft_epochs', default=2, type=int, help='number of fine tune epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
