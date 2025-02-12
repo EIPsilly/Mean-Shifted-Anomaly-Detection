@@ -430,10 +430,11 @@ if __name__ == "__main__":
     parser.add_argument("--warmup", type=float, default=0.25)
     parser.add_argument("--use_scheduler", type=int, default=0)
     parser.add_argument("--conv_layer", type=int, default=4)
-    parser.add_argument("--test_type", type=str, default="sample_align")
+    parser.add_argument("--test_type", type=str, default="beta_sample_align")
     parser.add_argument("--gray", type=int, default=1)
     parser.add_argument("--BalancedBatchSampler", type=int, default=1)
     parser.add_argument("--alpha", type=float, default=0.5)
+    parser.add_argument("--beta", type=float, default=0.5)
     parser.add_argument("--label_discount", type=float, default=2.0)
     parser.add_argument("--in_domain_type", nargs="+", type=str, default=["MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
     

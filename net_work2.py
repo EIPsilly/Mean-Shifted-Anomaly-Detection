@@ -123,15 +123,31 @@ def sample_align(input, target, lamda = 0.5):
         sampled_values = sampled_values.cuda()
     new_input_x = input + (sampled_values - input) * lamda
     # new_input_x = new_input_x.cpu().detach().numpy()
-    # new_input_x = torch.from_numpy(new_input_x)
+    # new_input_x = torch.from_numpy(new_input_x).cuda()
 
     return new_input_x
 
+def beta_sample_align(input, target, alpha = 0.5, beta = 0.5):
+
+    B, C, W, H = input.size(0), input.size(1), input.size(2), input.size(3)
+    B2 = target.shape[0]
+
+    random_index = torch.randint(0, target.shape[0], (B, C, H, W))
+    sampled_values = target[random_index, torch.arange(C)[None, :, None, None], torch.arange(H)[None, None, :, None], torch.arange(W)[None, None, None, :]]
+    if sampled_values.is_cuda == False:
+        sampled_values = sampled_values.cuda()
+    lam = np.random.beta(alpha, beta)
+    new_input_x = input * lam + (1 -  lam) * sampled_values
+    # new_input_x = new_input_x.cpu().detach().numpy()
+    # new_input_x = torch.from_numpy(new_input_x).cuda()
+
+    return new_input_x
 class Align_Test_Model(torch.nn.Module):
     def __init__(self, args, **kwargs):
         super().__init__()
         self.args = args
         self.alpha = self.args.alpha if "alpha" in self.args else 0.5
+        self.beta = self.args.beta if "beta" in self.args else 0.5
         backbone = args.backbone
         if (backbone == "resnet152") or (backbone == 152):
             self.backbone = models.resnet152(pretrained=True)
@@ -179,10 +195,14 @@ class Align_Test_Model(torch.nn.Module):
         
         if self.args.test_type == "sample_align":
             x1 = sample_align(x1, feature1_list, self.alpha)
+        elif self.args.test_type == "beta_sample_align":
+            x1 = beta_sample_align(x1, feature1_list, self.alpha, self.beta)
 
         x2 = self.backbone.layer2(x1)
         if self.args.test_type == "sample_align":
             x2 = sample_align(x2, feature2_list, self.alpha)
+        elif self.args.test_type == "beta_sample_align":
+            x2 = beta_sample_align(x2, feature2_list, self.alpha, self.beta)
 
         x3 = self.backbone.layer3(x2)
         x4 = self.backbone.layer4(x3)
