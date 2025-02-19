@@ -392,11 +392,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dataset', default='MVTEC')
+    parser.add_argument('--dataset', default='MNIST')
     parser.add_argument("--contamination_rate", type=float ,default=0)
     parser.add_argument("--checkitew", type=str, default="bottle")
     parser.add_argument("--normal_class", nargs="+", type=int, default=[0])
-    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6])
+    parser.add_argument("--anomaly_class", nargs="+", type=int, default=[1,2,3,4,5,6,7,8,9])
     parser.add_argument('--epochs', default=2, type=int, metavar='epochs', help='number of epochs')
     parser.add_argument('--ft_epochs', default=2, type=int, help='number of fine tune epochs')
     parser.add_argument('--label', default=0, type=int, help='The normal class')
@@ -435,7 +435,7 @@ if __name__ == "__main__":
     parser.add_argument("--BalancedBatchSampler", type=int, default=1)
     parser.add_argument("--alpha", type=float, default=0.5)
     parser.add_argument("--label_discount", type=float, default=2.0)
-    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["MNIST"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
+    parser.add_argument("--in_domain_type", nargs="+", type=str, default=["MNIST_M"], choices=["MNIST", "MNIST_M", "SYN", "SVHN"])
     
     # args = parser.parse_args(["--ft_epochs", "20" , "--ft_lr", "0.0005", "--score_lr", "0.0005", "--batch_size", "64", "--epochs", "5", "--lr", "0.0001"])
     args = parser.parse_args()
